@@ -1,182 +1,110 @@
-use bevy::{asset::StrongHandle, prelude::*, tasks::IoTaskPool};
-use foldhash::HashMap;
-use image::{GenericImageView, ImageFormat, RgbaImage};
-use ldtk2::{Ldtk, TileInstance};
-use std::{
-    borrow::Cow,
-    error::Error,
-    fs::File,
-    io::Write,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use bevy::prelude::*;
 
-pub fn build_ldtk_scene<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
-    // let map = Ldtk::from_path(&path)?;
-    // let asset_folder_path = "../annual/assets/ldtk/";
-    //
-    // // let map = Ldtk::from_path("assets/test.ldtk")?;
-    // // println!("{map:#?}");
-    // // let asset_folder_path = "assets/";
-    //
-    // let mut tileset_map = HashMap::default();
-    // map.defs.tilesets.iter().for_each(|t| {
-    //     tileset_map.insert(
-    //         t.uid,
-    //         image::open(
-    //             PathBuf::new()
-    //                 .join(asset_folder_path)
-    //                 .join(t.rel_path.as_ref().expect("no source image for tileset")),
-    //         )
-    //         .unwrap(),
-    //     );
-    // });
-    //
-    // let mut entity_map = HashMap::default();
-    // map.defs.entities.iter().for_each(|e| {
-    //     entity_map.insert(e.uid, e.clone());
-    // });
-    //
-    // for level in map.levels.iter() {
-    //     println!("parsing level: {}", level.identifier);
-    //     let mut composite = RgbaImage::new(level.px_wid as u32, level.px_hei as u32);
-    //
-    //     if let Some(layers) = &level.layer_instances {
-    //         for layer in layers
-    //             .iter()
-    //             .rev()
-    //             .filter(|l| l.identifier.to_lowercase().contains("background"))
-    //         {
-    //             println!("\tparsing layer: {}", layer.identifier);
-    //
-    //             if let Some(tileset_uid) = layer.tileset_def_uid {
-    //                 let src_img = tileset_map
-    //                     .get(&tileset_uid)
-    //                     .expect("no image registered for tileset");
-    //                 let tile_size = layer.grid_size as u32;
-    //
-    //                 let grid_tiles = match &*layer.layer_instance_type {
-    //                     "IntGrid" => &layer.auto_layer_tiles,
-    //                     "Tiles" => &layer.grid_tiles,
-    //                     t => {
-    //                         println!("unknown layer instance type [{t}], skipping");
-    //                         continue;
-    //                     }
-    //                 };
-    //
-    //                 for tile in grid_tiles.iter() {
-    //                     let (px_x, px_y) = (tile.px[0] as i32, tile.px[1] as i32);
-    //                     let (src_x, src_y) = (tile.src[0] as i32, tile.src[1] as i32);
-    //
-    //                     let x_range: Vec<_> = if tile.f & 1 == 1 {
-    //                         (0..tile_size as i32).rev().collect()
-    //                     } else {
-    //                         (0..tile_size as i32).collect()
-    //                     };
-    //
-    //                     let y_range: Vec<_> = if tile.f & 2 == 2 {
-    //                         (0..tile_size as i32).rev().collect()
-    //                     } else {
-    //                         (0..tile_size as i32).collect()
-    //                     };
-    //
-    //                     for (iy, dy) in y_range.iter().enumerate() {
-    //                         for (ix, dx) in x_range.iter().enumerate() {
-    //                             let dst = composite.get_pixel_mut(
-    //                                 px_x as u32 + ix as u32,
-    //                                 px_y as u32 + iy as u32,
-    //                             );
-    //                             let src =
-    //                                 src_img.get_pixel((src_x + *dx) as u32, (src_y + *dy) as u32);
-    //
-    //                             dst.0 = blend_rgba(dst.0, src.0);
-    //                         }
-    //                     }
-    //                 }
-    //             } else {
-    //                 println!("\t\tno tileset, skipping");
-    //             }
-    //         }
-    //     }
-    //
-    //     let file = format!("assets/ldtk/{}_background_composite", level.identifier);
-    //     let fout = &mut File::create(Path::new(&format!("{file}.png"))).unwrap();
-    //     composite.write_to(fout, ImageFormat::Png).unwrap();
-    // }
+pub mod comp;
 
-    let mut app = App::default();
-    app.register_type::<TileSet>()
-        .register_type::<Tile>()
-        .register_type_data::<&'static str, ReflectSerialize>();
-    app.world_mut().spawn(TileSet {
-        src: "hello!",
-        tiles: vec![Tile { idx: 69 }],
-    });
-    save_scene(app.world_mut());
+pub struct LdtkScenePlugin;
 
-    Ok(())
+impl Plugin for LdtkScenePlugin {
+    fn build(&self, app: &mut App) {
+        comp::register_types(app);
+        app.add_systems(PreUpdate, populate_levels);
+    }
 }
 
-#[derive(Reflect, Component)]
+#[derive(Debug, Reflect, Component)]
 #[reflect(Component)]
+#[require(Transform, Visibility)]
+pub struct LevelIdentifier(pub String);
+
+#[derive(Debug, Default, Reflect, Component)]
+#[reflect(Component)]
+struct Level {
+    id: String,
+    tilesets: Vec<TileSet>,
+    background_asset_path: Option<String>,
+}
+
+#[derive(Debug, Reflect)]
 struct TileSet {
-    src: &'static str,
+    asset_path: String,
+    tile_size: u32,
+    width: u32,
+    height: u32,
+    z: f32,
     tiles: Vec<Tile>,
 }
 
-#[derive(Reflect)]
+#[derive(Debug, Reflect)]
 struct Tile {
-    idx: u32,
+    xy: Vec2,
+    index: u32,
+    flip_x: bool,
+    flip_y: bool,
 }
 
-const NEW_SCENE_FILE_PATH: &str = "scenes/load_scene_example-new.scn.ron";
+fn populate_levels(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    levels: Query<(Entity, &Level), Added<Level>>,
+    mut atlases: ResMut<Assets<TextureAtlasLayout>>,
+) {
+    for (entity, level) in levels.iter() {
+        commands
+            .spawn(LevelIdentifier(level.id.clone()))
+            .with_children(|parent| {
+                if let Some(background) = &level.background_asset_path {
+                    parent.spawn((
+                        Sprite {
+                            image: asset_server.load(background),
+                            anchor: bevy::sprite::Anchor::TopLeft,
+                            ..Default::default()
+                        },
+                        Transform::from_xyz(0., 0., -100.),
+                    ));
+                }
 
-fn save_scene(world: &mut World) {
-    let scene = DynamicSceneBuilder::from_world(world)
-        .deny_resource::<Time<Real>>()
-        .extract_entities(world.iter_entities().map(|entity| entity.id()))
-        .extract_resources()
-        .build();
-    let type_registry = world.resource::<AppTypeRegistry>();
-    let type_registry = type_registry.read();
-    let serialized_scene = scene.serialize(&type_registry).unwrap();
+                for tileset in level.tilesets.iter() {
+                    info!("loading tileset: {}", tileset.asset_path);
+                    let layout = atlases.add(TextureAtlasLayout::from_grid(
+                        UVec2::splat(tileset.tile_size),
+                        tileset.width,
+                        tileset.height,
+                        None,
+                        None,
+                    ));
+                    let image = asset_server.load(&tileset.asset_path);
 
-    File::create(format!("assets/{NEW_SCENE_FILE_PATH}"))
-        .and_then(|mut file| file.write(serialized_scene.as_bytes()))
-        .expect("Error while writing scene to file");
-}
+                    for tile in tileset.tiles.iter() {
+                        let mut sprite = Sprite::from_atlas_image(
+                            image.clone(),
+                            TextureAtlas {
+                                index: tile.index as usize,
+                                layout: layout.clone(),
+                            },
+                        );
 
-fn blend_rgba(color1: [u8; 4], color2: [u8; 4]) -> [u8; 4] {
-    // Extract RGBA components as floats in the range [0.0, 1.0]
-    let c1 = color1.map(|c| c as f32 / 255.0);
-    let c2 = color2.map(|c| c as f32 / 255.0);
+                        sprite.flip_x = tile.flip_x;
+                        sprite.flip_y = tile.flip_y;
 
-    // Alpha out: A_out = A1 + A2 * (1 - A1)
-    let a_out = c1[3] + c2[3] * (1.0 - c1[3]);
+                        parent.spawn((
+                            sprite,
+                            Transform::from_translation(Vec3::new(
+                                tile.xy.x, -tile.xy.y, tileset.z,
+                            )),
+                        ));
+                    }
+                }
+            });
 
-    // If there's no alpha, return fully transparent
-    if a_out == 0.0 {
-        return [0, 0, 0, 0];
+        commands.entity(entity).despawn();
     }
-
-    // Blend each channel: C_out = (C1 * A1 * (1 - A2) + C2 * A2) / A_out
-    let blended_color = [
-        (c1[0] * c1[3] * (1.0 - c2[3]) + c2[0] * c2[3]) / a_out,
-        (c1[1] * c1[3] * (1.0 - c2[3]) + c2[1] * c2[3]) / a_out,
-        (c1[2] * c1[3] * (1.0 - c2[3]) + c2[2] * c2[3]) / a_out,
-        a_out, // Alpha is calculated directly
-    ];
-
-    // Convert back to u8 range [0, 255]
-    blended_color.map(|c| (c * 255.0).round() as u8)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn build() {
-        build_ldtk_scene("assets/test.ldtk").unwrap();
-    }
+pub struct LdtkEntity {
+    ident: LdtkEntityIdent,
+    px: Vec2,
 }
+
+#[derive(Debug, Default, Reflect, Component)]
+#[reflect(Component)]
+pub struct LdtkEntityIdent(pub String);
