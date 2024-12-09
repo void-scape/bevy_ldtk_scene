@@ -19,28 +19,45 @@ pub struct LevelIdentifier(pub String);
 #[derive(Debug, Default, Reflect, Component)]
 #[reflect(Component)]
 struct Level {
-    id: String,
-    tilesets: Vec<TileSet>,
-    background_asset_path: Option<String>,
+    pub id: String,
+    pub tilesets: Vec<TileSet>,
+    pub background_asset_path: Option<String>,
 }
 
 #[derive(Debug, Reflect)]
 struct TileSet {
-    asset_path: String,
-    tile_size: u32,
-    width: u32,
-    height: u32,
-    z: f32,
-    tiles: Vec<Tile>,
+    pub desc: TileSetDesc,
+    pub tiles: Vec<Tile>,
+}
+
+#[derive(Debug, Reflect, Component)]
+#[reflect(Component)]
+pub struct TileSetDesc {
+    pub asset_path: String,
+    pub tile_size: u32,
+    pub width: u32,
+    pub height: u32,
+    pub z: f32,
 }
 
 #[derive(Debug, Reflect)]
 struct Tile {
-    xy: Vec2,
-    index: u32,
-    flip_x: bool,
-    flip_y: bool,
+    pub xy: Vec2,
+    pub index: u32,
+    pub flip_x: bool,
+    pub flip_y: bool,
 }
+
+#[derive(Debug, Default, Reflect, Component)]
+pub struct LdtkEntity {
+    pub ident: LdtkEntityIdent,
+    pub tileset: Option<TileSetDesc>,
+    pub px: Vec2,
+}
+
+#[derive(Debug, Default, Reflect, Component)]
+#[reflect(Component)]
+pub struct LdtkEntityIdent(pub String);
 
 fn populate_levels(
     mut commands: Commands,
@@ -64,15 +81,14 @@ fn populate_levels(
                 }
 
                 for tileset in level.tilesets.iter() {
-                    info!("loading tileset: {}", tileset.asset_path);
                     let layout = atlases.add(TextureAtlasLayout::from_grid(
-                        UVec2::splat(tileset.tile_size),
-                        tileset.width,
-                        tileset.height,
+                        UVec2::splat(tileset.desc.tile_size),
+                        tileset.desc.width,
+                        tileset.desc.height,
                         None,
                         None,
                     ));
-                    let image = asset_server.load(&tileset.asset_path);
+                    let image = asset_server.load(&tileset.desc.asset_path);
 
                     for tile in tileset.tiles.iter() {
                         let mut sprite = Sprite::from_atlas_image(
@@ -89,7 +105,9 @@ fn populate_levels(
                         parent.spawn((
                             sprite,
                             Transform::from_translation(Vec3::new(
-                                tile.xy.x, -tile.xy.y, tileset.z,
+                                tile.xy.x,
+                                -tile.xy.y,
+                                tileset.desc.z,
                             )),
                         ));
                     }
@@ -99,12 +117,3 @@ fn populate_levels(
         commands.entity(entity).despawn();
     }
 }
-
-pub struct LdtkEntity {
-    ident: LdtkEntityIdent,
-    px: Vec2,
-}
-
-#[derive(Debug, Default, Reflect, Component)]
-#[reflect(Component)]
-pub struct LdtkEntityIdent(pub String);

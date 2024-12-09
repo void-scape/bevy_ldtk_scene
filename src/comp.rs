@@ -94,6 +94,24 @@ pub fn build_ldtk_scene<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
                         entities.push(LdtkEntity {
                             ident: LdtkEntityIdent(entity.identifier.clone()),
                             px: Vec2::new(entity.px[0] as f32, entity.px[1] as f32),
+                            tileset: {
+                                if let Some(tileset) = &entity.tile {
+                                    let (src_img, src_img_path, (width, height)) = tileset_map
+                                        .get(&tileset.tileset_uid)
+                                        .expect("no image registered for tileset");
+                                    let tile_size = layer.grid_size as u32;
+
+                                    Some(TileSetDesc {
+                                        asset_path: src_img_path.clone(),
+                                        tile_size: layer.grid_size as u32,
+                                        width: *width as u32,
+                                        height: *height as u32,
+                                        z: z as f32,
+                                    })
+                                } else {
+                                    None
+                                }
+                            },
                         });
                     }
 
@@ -148,11 +166,13 @@ pub fn build_ldtk_scene<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
                         }
                     } else {
                         new_level.tilesets.push(TileSet {
-                            asset_path: src_img_path.clone(),
-                            // top_left: Vec2::new(0., 0.),
-                            tile_size: layer.grid_size as u32,
-                            width: *width as u32,
-                            height: *height as u32,
+                            desc: TileSetDesc {
+                                asset_path: src_img_path.clone(),
+                                tile_size: layer.grid_size as u32,
+                                width: *width as u32,
+                                height: *height as u32,
+                                z: z as f32,
+                            },
                             tiles: grid_tiles
                                 .iter()
                                 .map(|t| Tile {
@@ -162,7 +182,6 @@ pub fn build_ldtk_scene<P: AsRef<Path>>(path: P) -> Result<(), Box<dyn Error>> {
                                     flip_y: t.f & 2 == 2,
                                 })
                                 .collect(),
-                            z: z as f32,
                         });
                     }
                 } else {
@@ -255,15 +274,35 @@ pub fn entities<P: AsRef<Path>>(path: P) -> Result<String, Box<dyn Error>> {
     input.append_all(quote! {
         fn init_spawned_entities(
             mut commands: Commands,
-            entities: Query<(Entity, &bevy_ldtk_scene::LdtkEntityIdent), Added<bevy_ldtk_scene::LdtkEntityIdent>>,
+            entities: Query<(Entity, &bevy_ldtk_scene::LdtkEntityIdent, Option<&bevy_ldtk_scene::TileSetDesc>), Added<bevy_ldtk_scene::LdtkEntityIdent>>,
+            mut atlases: ResMut<Assets<TextureAtlasLayout>>,
+            asset_server: Res<AssetServer>
         ) {
-            for (entity, ident) in entities.iter() {
-
+            for (entity, ident, tileset) in entities.iter() {
+                let mut entity = commands.entity(entity);
                 if let Some(ldtk_entity) = entity_from_ident(&ident.0) {
-                    let mut entity = commands.entity(entity);
                     match ldtk_entity {
                         #(LdtkEntities::#names(e) => entity.insert(e),)*
                     };
+                }
+
+                if let Some(tileset) = tileset {
+                    let layout = atlases.add(TextureAtlasLayout::from_grid(
+                        UVec2::splat(tileset.tile_size),
+                        tileset.width,
+                        tileset.height,
+                        None,
+                        None,
+                    ));
+                    let image = asset_server.load(&tileset.asset_path);
+
+                    entity.insert(Sprite::from_atlas_image(
+                        image.clone(),
+                        TextureAtlas {
+                            index: 0,
+                            layout: layout.clone(),
+                        },
+                    ));
                 }
             }
         }
@@ -295,10 +334,18 @@ fn save_level(level: Level, entities: Vec<LdtkEntity>, path_to_world: &Path, wor
 
     world.spawn(level);
     for entity in entities.into_iter() {
-        world.spawn((
-            entity.ident,
-            Transform::from_xyz(entity.px.x, entity.px.y, 100.),
-        ));
+        if let Some(tileset) = entity.tileset {
+            world.spawn((
+                entity.ident,
+                tileset,
+                Transform::from_xyz(entity.px.x, entity.px.y, 100.),
+            ));
+        } else {
+            world.spawn((
+                entity.ident,
+                Transform::from_xyz(entity.px.x, entity.px.y, 100.),
+            ));
+        }
     }
 
     let scene = DynamicSceneBuilder::from_world(world)
@@ -341,6 +388,7 @@ fn blend_rgba(color1: [u8; 4], color2: [u8; 4]) -> [u8; 4] {
 
 pub(crate) fn register_types(app: &mut App) {
     app.register_type::<Transform>()
+        .register_type::<TileSetDesc>()
         .register_type::<LdtkEntityIdent>()
         .register_type::<LevelIdentifier>()
         .register_type::<Level>()
