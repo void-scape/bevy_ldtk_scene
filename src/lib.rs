@@ -1,4 +1,8 @@
 use bevy::prelude::*;
+use bevy::utils::hashbrown::HashMap;
+use ldtk2::TileInstance;
+
+use self::comp::TileSetUid;
 
 pub mod comp;
 
@@ -7,59 +11,76 @@ pub struct LdtkScenePlugin;
 impl Plugin for LdtkScenePlugin {
     fn build(&self, app: &mut App) {
         comp::register_types(app);
-        app.add_systems(PreUpdate, populate_levels);
+        app.insert_resource(LevelTileEnums::default())
+            .add_systems(PreUpdate, spawn_level_tiles);
     }
 }
 
-#[derive(Debug, Reflect, Component)]
+#[derive(Debug, Default, Reflect, Component)]
 #[reflect(Component)]
-#[require(Transform, Visibility)]
-pub struct LevelIdentifier(pub String);
+pub struct LevelUid(pub i64);
 
 #[derive(Debug, Default, Reflect, Component)]
 #[reflect(Component)]
-struct Level {
-    pub id: String,
+pub struct Level {
+    pub uid: LevelUid,
     pub tilesets: Vec<TileSet>,
     pub background_asset_path: Option<String>,
 }
 
 #[derive(Debug, Reflect)]
-struct TileSet {
-    pub desc: TileSetDesc,
-    pub tiles: Vec<Tile>,
-}
-
-#[derive(Debug, Reflect, Component)]
-#[reflect(Component)]
-pub struct TileSetDesc {
-    pub asset_path: String,
+pub struct TileSet {
+    pub ty: TileSetType,
     pub tile_size: u32,
     pub width: u32,
     pub height: u32,
-    pub z: f32,
+    pub uid: TileSetUid,
+    pub tiles: Vec<Tile>,
 }
 
 #[derive(Debug, Reflect)]
-struct Tile {
+pub enum TileSetType {
+    /// Asset path
+    Tiles(Option<String>),
+    IntGrid,
+}
+
+#[derive(Debug, Reflect)]
+pub struct Tile {
     pub xy: Vec2,
     pub index: u32,
     pub flip_x: bool,
     pub flip_y: bool,
 }
 
-#[derive(Debug, Default, Reflect, Component)]
-pub struct LdtkEntity {
-    pub ident: LdtkEntityIdent,
-    pub tileset: Option<TileSetDesc>,
-    pub px: Vec2,
+impl Tile {
+    pub fn from_ldtk_tile(tile: &TileInstance) -> Self {
+        Self {
+            xy: Vec2::new(tile.px[0] as f32, tile.px[1] as f32),
+            index: tile.t as u32,
+            flip_x: tile.f & 1 == 1,
+            flip_y: tile.f & 2 == 2,
+        }
+    }
 }
 
-#[derive(Debug, Default, Reflect, Component)]
-#[reflect(Component)]
-pub struct LdtkEntityIdent(pub String);
+pub trait TileEnum: 'static + Send + Sync {
+    fn insert(&self, entity: &mut EntityCommands<'_>);
+}
 
-fn populate_levels(
+impl<T> TileEnum for T
+where
+    T: Clone + Component,
+{
+    fn insert(&self, entity: &mut EntityCommands<'_>) {
+        entity.insert(self.clone());
+    }
+}
+
+#[derive(Default, Resource)]
+pub struct LevelTileEnums(HashMap<TileSetUid, (Box<dyn TileEnum>, &'static [usize])>);
+
+fn spawn_level_tiles(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     levels: Query<(Entity, &Level), Added<Level>>,
@@ -67,7 +88,9 @@ fn populate_levels(
 ) {
     for (entity, level) in levels.iter() {
         commands
-            .spawn(LevelIdentifier(level.id.clone()))
+            .entity(entity)
+            .insert((Transform::default(), Visibility::Visible))
+            .remove::<Level>()
             .with_children(|parent| {
                 if let Some(background) = &level.background_asset_path {
                     parent.spawn((
@@ -80,40 +103,47 @@ fn populate_levels(
                     ));
                 }
 
-                for tileset in level.tilesets.iter() {
-                    let layout = atlases.add(TextureAtlasLayout::from_grid(
-                        UVec2::splat(tileset.desc.tile_size),
-                        tileset.desc.width,
-                        tileset.desc.height,
-                        None,
-                        None,
-                    ));
-                    let image = asset_server.load(&tileset.desc.asset_path);
+                for (z, tileset) in level.tilesets.iter().rev().enumerate() {
+                    match &tileset.ty {
+                        TileSetType::Tiles(asset_path) => {
+                            if let Some(asset_path) = asset_path {
+                                let layout = atlases.add(TextureAtlasLayout::from_grid(
+                                    UVec2::splat(tileset.tile_size),
+                                    tileset.width,
+                                    tileset.height,
+                                    None,
+                                    None,
+                                ));
+                                let image = asset_server.load(asset_path);
 
-                    for tile in tileset.tiles.iter() {
-                        let mut sprite = Sprite::from_atlas_image(
-                            image.clone(),
-                            TextureAtlas {
-                                index: tile.index as usize,
-                                layout: layout.clone(),
-                            },
-                        );
+                                for tile in tileset.tiles.iter() {
+                                    let mut sprite = Sprite {
+                                        image: image.clone(),
+                                        texture_atlas: Some(TextureAtlas {
+                                            index: tile.index as usize,
+                                            layout: layout.clone(),
+                                        }),
+                                        anchor: bevy::sprite::Anchor::TopLeft,
+                                        ..Default::default()
+                                    };
 
-                        sprite.flip_x = tile.flip_x;
-                        sprite.flip_y = tile.flip_y;
+                                    sprite.flip_x = tile.flip_x;
+                                    sprite.flip_y = tile.flip_y;
 
-                        parent.spawn((
-                            sprite,
-                            Transform::from_translation(Vec3::new(
-                                tile.xy.x,
-                                -tile.xy.y,
-                                tileset.desc.z,
-                            )),
-                        ));
+                                    parent.spawn((
+                                        sprite,
+                                        Transform::from_translation(Vec3::new(
+                                            tile.xy.x, -tile.xy.y, z as f32,
+                                        )),
+                                    ));
+                                }
+                            }
+                        }
+                        _ => {
+                            unimplemented!()
+                        }
                     }
                 }
             });
-
-        commands.entity(entity).despawn();
     }
 }
