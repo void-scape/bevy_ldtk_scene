@@ -34,6 +34,8 @@ pub struct TileSet {
     pub tile_size: u32,
     pub width: u32,
     pub height: u32,
+    pub spacing: u32,
+    pub padding: u32,
     pub uid: TileSetUid,
     pub tiles: Vec<Tile>,
 }
@@ -43,6 +45,15 @@ pub enum TileSetType {
     /// Asset path
     Tiles(Option<String>),
     IntGrid,
+}
+
+impl TileSetType {
+    pub fn expect_tiles(&self) -> Option<&String> {
+        match self {
+            Self::Tiles(tiles) => tiles.as_ref(),
+            _ => panic!("expected tiles"),
+        }
+    }
 }
 
 #[derive(Debug, Reflect)]
@@ -78,13 +89,14 @@ where
 }
 
 #[derive(Default, Resource)]
-pub struct LevelTileEnums(HashMap<TileSetUid, (Box<dyn TileEnum>, &'static [usize])>);
+pub struct LevelTileEnums(pub HashMap<TileSetUid, (Box<dyn TileEnum>, &'static [u32])>);
 
 fn spawn_level_tiles(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     levels: Query<(Entity, &Level), Added<Level>>,
     mut atlases: ResMut<Assets<TextureAtlasLayout>>,
+    registry: Res<LevelTileEnums>,
 ) {
     for (entity, level) in levels.iter() {
         commands
@@ -116,6 +128,14 @@ fn spawn_level_tiles(
                                 ));
                                 let image = asset_server.load(asset_path);
 
+                                let enum_hash = registry.0.get(&tileset.uid).map(|r| {
+                                    (
+                                        &r.0,
+                                        r.1.iter()
+                                            .map(|idx| (*idx, ()))
+                                            .collect::<HashMap<u32, ()>>(),
+                                    )
+                                });
                                 for tile in tileset.tiles.iter() {
                                     let mut sprite = Sprite {
                                         image: image.clone(),
@@ -130,12 +150,18 @@ fn spawn_level_tiles(
                                     sprite.flip_x = tile.flip_x;
                                     sprite.flip_y = tile.flip_y;
 
-                                    parent.spawn((
+                                    let mut entity = parent.spawn((
                                         sprite,
                                         Transform::from_translation(Vec3::new(
                                             tile.xy.x, -tile.xy.y, z as f32,
                                         )),
                                     ));
+
+                                    if let Some((component, index)) = &enum_hash {
+                                        if index.get(&tile.index).is_some() {
+                                            component.insert(&mut entity);
+                                        }
+                                    }
                                 }
                             }
                         }

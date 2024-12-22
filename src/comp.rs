@@ -81,6 +81,7 @@ pub fn build_ldtk_world_mod(path: &Path) -> Result<WorldModule, ldtk2::Error> {
                     asset_server: Res<AssetServer>,
                     mut atlases: ResMut<Assets<TextureAtlasLayout>>
                 ) {
+                    commands.run_system_cached(super::register_tileset_enums);
                     commands.spawn(
                         (
                             DynamicSceneRoot(asset_server.load(#path_to_tile_data)),
@@ -102,6 +103,8 @@ pub fn build_ldtk_world_mod(path: &Path) -> Result<WorldModule, ldtk2::Error> {
             }
         });
     }
+
+    output.append_all(world.extract_tilesets());
 
     Ok(WorldModule {
         world_name: world.name,
@@ -306,6 +309,59 @@ impl LdtkWorld {
         output
     }
 
+    pub fn extract_tilesets(&self) -> proc_macro2::TokenStream {
+        let mut output = proc_macro2::TokenStream::new();
+        let mut register = proc_macro2::TokenStream::new();
+
+        for (tileset_uid, def) in self.tile_set_defs.map.iter() {
+            if let Some(enum_uid) = def.def.tags_source_enum_uid {
+                let enum_ty = self.enum_registry.type_path_from_uid(&EnumUid(enum_uid));
+
+                for enum_value in def.def.enum_tags.iter() {
+                    let len = enum_value.tile_ids.len();
+                    let ids = enum_value.tile_ids.iter().map(|i| *i as u32);
+                    match enum_ty {
+                        EnumType::Marker(markers) => {
+                            let marker = markers
+                                .get(&enum_value.enum_value_id)
+                                .expect("invalid variant");
+                            let name = format_ident!(
+                                "{}_{}",
+                                &enum_value.enum_value_id,
+                                tileset_uid.0.to_string()
+                            );
+
+                            output.append_all(quote! {
+                                #[allow(non_upper_case_globals)]
+                                pub const #name: [u32; #len] = [
+                                    #(#ids,)*
+                                ];
+                            });
+
+                            let uid = tileset_uid.0;
+                            register.append_all(quote! {
+                                registry.0.insert(bevy_ldtk_scene::comp::TileSetUid(#uid), (Box::new(#marker), &#name));
+                            });
+                        }
+                        _ => unimplemented!(),
+                    }
+                }
+            }
+        }
+
+        output.append_all(quote! {
+            fn register_tileset_enums(mut registry: ResMut<bevy_ldtk_scene::LevelTileEnums>, mut registered: Local<bool>) {
+                if !*registered {
+                    *registered = true;
+
+                    #register
+                }
+            }
+        });
+
+        output
+    }
+
     pub fn extract_levels(&self) -> Vec<ExtractedLevel> {
         let mut extracted_levels = HashMap::default();
         let mut levels = HashMap::default();
@@ -398,16 +454,24 @@ impl LdtkWorld {
                         .new_tile_set()
                 });
 
-                let sprite = match tileset {
-                    Some(tileset) => match tileset.ty {
-                        TileSetType::Tiles(path) => match path {
-                            Some(path) => {
+                let sprite = tileset
+                    .as_ref()
+                    .map(|tileset| {
+                        tileset
+                            .ty
+                            .expect_tiles()
+                            .map(|path| {
                                 let tile_size = tileset.tile_size;
                                 let width = tileset.width;
                                 let height = tileset.height;
+                                let spacing = tileset.spacing;
+                                let _padding = tileset.padding;
 
                                 let len = layouts.len();
-                                let (layout, _) = layouts.entry((tile_size, width, height)).or_insert_with(|| {
+                                let (layout, _) =
+                            layouts
+                                .entry((tile_size, width, height))
+                                .or_insert_with(|| {
                                     let ident = format_ident!("layout_{}", len);
                                     (
                                         ident.clone(),
@@ -416,36 +480,30 @@ impl LdtkWorld {
                                                 UVec2::splat(#tile_size),
                                                 #width,
                                                 #height,
+                                                Some(UVec2::splat(#spacing)),
                                                 None,
-                                                None,
+                                                // Some(UVec2::splat(#padding)),
                                             ));
                                         },
                                     )
                                 });
 
                                 quote! {
-                                    {
-                                        Sprite {
-                                            rect: #rect,
-                                            image: asset_server.load(#path),
-                                            anchor: bevy::sprite::Anchor::TopLeft,
-                                            texture_atlas: Some(TextureAtlas {
-                                                index: 0,
-                                                layout: #layout.clone(),
-                                            }),
-                                            ..Default::default()
-                                        }
+                                    Sprite {
+                                        rect: #rect,
+                                        image: asset_server.load(#path),
+                                        anchor: bevy::sprite::Anchor::TopLeft,
+                                        texture_atlas: Some(TextureAtlas {
+                                            index: 0,
+                                            layout: #layout.clone(),
+                                        }),
+                                        ..Default::default()
                                     }
                                 }
-                            }
-                            _ => quote! {},
-                        },
-                        _ => {
-                            quote! {}
-                        }
-                    },
-                    None => quote! {},
-                };
+                            })
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default();
 
                 let entity_name = format_ident!("{}", entity.identifier.to_case(Case::Pascal));
                 let fields = entity
@@ -526,15 +584,20 @@ fn tokens_to_string(tokens: proc_macro2::TokenStream) -> String {
     prettyplease::unparse(&parsed)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EnumUid(pub i64);
+
 /// Stores the absolute path declaration of an enum.
 #[derive(Debug)]
 struct EnumRegistry {
+    ty_path_from_uid: HashMap<EnumUid, EnumType>,
     ty_path: HashMap<String, EnumType>,
     decls: Vec<proc_macro2::TokenStream>,
 }
 
 impl EnumRegistry {
     pub fn new(world_name: &str, enums: &[ldtk2::EnumDefinition]) -> Self {
+        let mut ty_path_from_uid = HashMap::default();
         let mut ty_path = HashMap::default();
         let mut decls = Vec::new();
 
@@ -566,11 +629,17 @@ impl EnumRegistry {
 
                 ty_path.insert(
                     enumeration.identifier.clone(),
-                    EnumType::Marker(marker_variants),
+                    EnumType::Marker(marker_variants.clone()),
                 );
+                ty_path_from_uid
+                    .insert(EnumUid(enumeration.uid), EnumType::Marker(marker_variants));
             } else {
                 ty_path.insert(
                     enumeration.identifier.clone(),
+                    EnumType::Enum(quote! { crate:: #world_name :: #name }),
+                );
+                ty_path_from_uid.insert(
+                    EnumUid(enumeration.uid),
                     EnumType::Enum(quote! { crate:: #world_name :: #name }),
                 );
                 decls.push(quote! {
@@ -583,11 +652,19 @@ impl EnumRegistry {
             }
         }
 
-        Self { ty_path, decls }
+        Self {
+            ty_path_from_uid,
+            ty_path,
+            decls,
+        }
     }
 
     pub fn type_path(&self, key: &str) -> &EnumType {
-        self.ty_path.get(key).unwrap()
+        self.ty_path.get(key).expect("unregistered enum")
+    }
+
+    pub fn type_path_from_uid(&self, key: &EnumUid) -> &EnumType {
+        self.ty_path_from_uid.get(key).expect("unregistered enum")
     }
 
     pub fn declarations(&self) -> impl Iterator<Item = &proc_macro2::TokenStream> {
@@ -741,6 +818,8 @@ impl TileSetDef {
             tile_size: self.def.tile_grid_size as u32,
             width: self.def.c_wid as u32,
             height: self.def.c_hei as u32,
+            spacing: self.def.spacing as u32,
+            padding: self.def.padding as u32,
             uid: TileSetUid(self.def.uid),
             tiles: Vec::new(),
         }
