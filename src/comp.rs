@@ -77,12 +77,13 @@ pub fn build_ldtk_world_mod(path: &Path) -> Result<WorldModule, ldtk2::Error> {
                 pub struct #level_name_pascal;
 
                 pub fn spawn(
+                    In(root): In<Entity>,
                     mut commands: Commands,
                     asset_server: Res<AssetServer>,
                     mut atlases: ResMut<Assets<TextureAtlasLayout>>
                 ) {
                     commands.run_system_cached(super::register_tileset_enums);
-                    commands.spawn(
+                    commands.entity(root).insert(
                         (
                             DynamicSceneRoot(asset_server.load(#path_to_tile_data)),
                             #level_name_pascal,
