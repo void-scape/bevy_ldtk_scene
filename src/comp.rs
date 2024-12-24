@@ -341,7 +341,10 @@ impl LdtkWorld {
 
                             let uid = tileset_uid.0;
                             register.append_all(quote! {
-                                registry.0.insert(bevy_ldtk_scene::comp::TileSetUid(#uid), (Box::new(#marker), &#name));
+                            {
+                                    let mut entry = registry.0.entry(bevy_ldtk_scene::comp::TileSetUid(#uid)).or_insert_with(|| Vec::new());
+                                    entry.push((Box::new(#marker), &#name));
+                                }
                             });
                         }
                         _ => unimplemented!(),

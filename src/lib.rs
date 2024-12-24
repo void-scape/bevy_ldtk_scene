@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use bevy::utils::hashbrown::HashMap;
 use ldtk2::TileInstance;
-
-use self::comp::TileSetUid;
+use comp::TileSetUid;
 
 pub mod comp;
 
@@ -89,7 +88,7 @@ where
 }
 
 #[derive(Default, Resource)]
-pub struct LevelTileEnums(pub HashMap<TileSetUid, (Box<dyn TileEnum>, &'static [u32])>);
+pub struct LevelTileEnums(pub HashMap<TileSetUid, Vec<(Box<dyn TileEnum>, &'static [u32])>>);
 
 fn spawn_level_tiles(
     mut commands: Commands,
@@ -129,12 +128,16 @@ fn spawn_level_tiles(
                                 let image = asset_server.load(asset_path);
 
                                 let enum_hash = registry.0.get(&tileset.uid).map(|r| {
-                                    (
-                                        &r.0,
-                                        r.1.iter()
-                                            .map(|idx| (*idx, ()))
-                                            .collect::<HashMap<u32, ()>>(),
-                                    )
+                                    r.iter()
+                                        .map(|r| {
+                                            (
+                                                &r.0,
+                                                r.1.iter()
+                                                    .map(|idx| (*idx, ()))
+                                                    .collect::<HashMap<u32, ()>>(),
+                                            )
+                                        })
+                                        .collect::<Vec<_>>()
                                 });
                                 for tile in tileset.tiles.iter() {
                                     let mut sprite = Sprite {
@@ -157,9 +160,11 @@ fn spawn_level_tiles(
                                         )),
                                     ));
 
-                                    if let Some((component, index)) = &enum_hash {
-                                        if index.get(&tile.index).is_some() {
-                                            component.insert(&mut entity);
+                                    if let Some(enums) = &enum_hash {
+                                        for (component, index) in enums.iter() {
+                                            if index.get(&tile.index).is_some() {
+                                                component.insert(&mut entity);
+                                            }
                                         }
                                     }
                                 }
