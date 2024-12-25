@@ -55,7 +55,7 @@ pub fn build_ldtk_world_mod(path: &Path) -> Result<WorldModule, ldtk2::Error> {
 
         let path_to_tile_data = PathBuf::new()
             .join(&world.path)
-            .join(format!("{}.scn.ron", uid));
+            .join(format!("{}.scn.ron", &level.name));
         File::create(&path_to_tile_data)
             .and_then(|mut file| file.write(level.tile_ron_data.as_bytes()))
             .unwrap_or_else(|e| panic!("Error while writing tild data to file: {e}"));
@@ -342,7 +342,7 @@ impl LdtkWorld {
                             let uid = tileset_uid.0;
                             register.append_all(quote! {
                             {
-                                    let mut entry = registry.0.entry(bevy_ldtk_scene::comp::TileSetUid(#uid)).or_insert_with(|| Vec::new());
+                                    let entry = registry.0.entry(bevy_ldtk_scene::comp::TileSetUid(#uid)).or_insert_with(|| Vec::new());
                                     entry.push((Box::new(#marker), &#name));
                                 }
                             });
@@ -406,7 +406,14 @@ impl LdtkWorld {
                 self.tile_set_def(&TileSetUid(uid))
                     .map(|t| t.new_tile_set())
             }) {
-                tileset.tiles = tiles.map(|t| Tile::from_ldtk_tile(t)).collect();
+                tileset.tiles = tiles
+                    .map(|t| {
+                        Tile::from_ldtk_tile(
+                            t,
+                            Some(Vec2::new(level.world_x as f32, level.world_y as f32)),
+                        )
+                    })
+                    .collect();
                 extracted_level.tilesets.push(tileset);
             }
         }
@@ -426,7 +433,6 @@ impl LdtkWorld {
 
             let mut layouts = HashMap::default();
             for entity in entities {
-                let (x, y) = (entity.px[0] as f32, entity.px[1] as f32);
                 let rect = match entity.tags.iter().all(|t| t != "atlas").then_some({
                     entity.tile.as_ref().map(|t| {
                         Rect::new(
@@ -515,7 +521,7 @@ impl LdtkWorld {
                     .iter()
                     .filter_map(|f| parse_entity_field_value(f, &self.enum_registry))
                     .collect::<Vec<_>>();
-                let entity = if fields.is_empty() {
+                let entity_marker = if fields.is_empty() {
                     quote! { super::#entity_name::default() }
                 } else {
                     quote! {
@@ -526,11 +532,16 @@ impl LdtkWorld {
                 };
                 let layouts = layouts.values().map(|(_, layout)| layout);
                 extracted_level.texture_layouts = quote! { #(#layouts)* };
+
+                let (x, y) = (
+                    entity.px[0] as f32 + level.world_x as f32,
+                    entity.px[1] as f32 + level.world_y as f32,
+                );
                 extracted_level.entities.push(ExtractedEntityInstance {
                     data: quote! {
                         (
-                            #entity,
-                            Transform::from_translation(Vec2::new(#x, -#y).extend(0.)),
+                            #entity_marker,
+                            Transform::from_translation(Vec2::new(#x, -#y).extend(100.)),
                             Visibility::Visible,
                             #sprite
                         )

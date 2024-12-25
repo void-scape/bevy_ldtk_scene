@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy::utils::hashbrown::HashMap;
-use ldtk2::TileInstance;
 use comp::TileSetUid;
+use ldtk2::TileInstance;
 
 pub mod comp;
 
@@ -64,9 +64,9 @@ pub struct Tile {
 }
 
 impl Tile {
-    pub fn from_ldtk_tile(tile: &TileInstance) -> Self {
+    pub fn from_ldtk_tile(tile: &TileInstance, offset: Option<Vec2>) -> Self {
         Self {
-            xy: Vec2::new(tile.px[0] as f32, tile.px[1] as f32),
+            xy: Vec2::new(tile.px[0] as f32, tile.px[1] as f32) + offset.unwrap_or_default(),
             index: tile.t as u32,
             flip_x: tile.f & 1 == 1,
             flip_y: tile.f & 2 == 2,
