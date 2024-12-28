@@ -432,18 +432,19 @@ impl LdtkWorld {
             extracted_level.name = level.identifier.clone();
 
             let mut layouts = HashMap::default();
+            let mut layout_output = proc_macro2::TokenStream::new();
             for entity in entities {
-                let rect = match entity.tags.iter().all(|t| t != "atlas").then_some({
-                    entity.tile.as_ref().map(|t| {
+                let is_atlas = entity.tags.iter().any(|t| t == "atlas");
+
+                let rect = if !is_atlas {
+                    match entity.tile.as_ref().map(|t| {
                         Rect::new(
                             t.x as f32,
                             t.y as f32,
                             (t.x + t.w) as f32,
                             (t.y + t.h) as f32,
                         )
-                    })
-                }) {
-                    Some(r) => match r {
+                    }) {
                         Some(r) => {
                             let x0 = r.min.x;
                             let y0 = r.min.y;
@@ -454,8 +455,9 @@ impl LdtkWorld {
                         None => {
                             quote! { None }
                         }
-                    },
-                    None => quote! { None },
+                    }
+                } else {
+                    quote! { None }
                 };
 
                 let tileset = entity.tile.as_ref().map(|t| {
@@ -464,56 +466,56 @@ impl LdtkWorld {
                         .new_tile_set()
                 });
 
-                let sprite = tileset
-                    .as_ref()
-                    .map(|tileset| {
-                        tileset
-                            .ty
-                            .expect_tiles()
-                            .map(|path| {
-                                let tile_size = tileset.tile_size;
-                                let width = tileset.width;
-                                let height = tileset.height;
-                                let spacing = tileset.spacing;
-                                let _padding = tileset.padding;
+                let sprite = if let Some(tileset) = tileset {
+                    if let Some(path) = tileset.ty.expect_tiles() {
+                        let atlas = if is_atlas {
+                            let tile_size = tileset.tile_size;
+                            let width = tileset.width;
+                            let height = tileset.height;
+                            let spacing = tileset.spacing;
+                            let padding = tileset.padding;
 
-                                let len = layouts.len();
-                                let (layout, _) =
-                            layouts
-                                .entry((tile_size, width, height))
-                                .or_insert_with(|| {
-                                    let ident = format_ident!("layout_{}", len);
-                                    (
-                                        ident.clone(),
-                                        quote! {
-                                            let #ident = atlases.add(TextureAtlasLayout::from_grid(
-                                                UVec2::splat(#tile_size),
-                                                #width,
-                                                #height,
-                                                Some(UVec2::splat(#spacing)),
-                                                None,
-                                                // Some(UVec2::splat(#padding)),
-                                            ));
-                                        },
-                                    )
+                            let len = layouts.len();
+                            let layout = layouts.entry(path.clone()).or_insert_with(|| {
+                                let ident = format_ident!("layout_{}", len);
+                                layout_output.append_all(quote! {
+                                    let #ident = atlases.add(TextureAtlasLayout::from_grid(
+                                        UVec2::splat(#tile_size),
+                                        #width,
+                                        #height,
+                                        Some(UVec2::splat(#spacing)),
+                                        Some(UVec2::splat(#padding)),
+                                    ));
                                 });
 
-                                quote! {
-                                    Sprite {
-                                        rect: #rect,
-                                        image: asset_server.load(#path),
-                                        anchor: bevy::sprite::Anchor::TopLeft,
-                                        texture_atlas: Some(TextureAtlas {
-                                            index: 0,
-                                            layout: #layout.clone(),
-                                        }),
-                                        ..Default::default()
-                                    }
-                                }
-                            })
-                            .unwrap_or_default()
-                    })
-                    .unwrap_or_default();
+                                ident
+                            });
+
+                            quote! {
+                                Some(TextureAtlas {
+                                    index: 0,
+                                    layout: #layout.clone(),
+                                })
+                            }
+                        } else {
+                            quote! { None }
+                        };
+
+                        quote! {
+                            Sprite {
+                                rect: #rect,
+                                image: asset_server.load(#path),
+                                anchor: bevy::sprite::Anchor::TopLeft,
+                                texture_atlas: #atlas,
+                                ..Default::default()
+                            }
+                        }
+                    } else {
+                        quote! {}
+                    }
+                } else {
+                    quote! {}
+                };
 
                 let entity_name = format_ident!("{}", entity.identifier.to_case(Case::Pascal));
                 let fields = entity
@@ -530,8 +532,6 @@ impl LdtkWorld {
                         }
                     }
                 };
-                let layouts = layouts.values().map(|(_, layout)| layout);
-                extracted_level.texture_layouts = quote! { #(#layouts)* };
 
                 let (x, y) = (
                     entity.px[0] as f32 + level.world_x as f32,
@@ -548,6 +548,8 @@ impl LdtkWorld {
                     },
                 });
             }
+
+            extracted_level.texture_layouts.append_all(layout_output);
         }
 
         extracted_levels.into_values().collect()
