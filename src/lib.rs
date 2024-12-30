@@ -24,7 +24,7 @@ pub struct LevelUid(pub i64);
 pub struct Level {
     pub uid: LevelUid,
     pub tilesets: Vec<TileSet>,
-    pub background_asset_path: Option<String>,
+    pub background_asset_path: Option<(String, Vec2)>,
 }
 
 #[derive(Debug, Reflect)]
@@ -106,11 +106,11 @@ fn spawn_level_tiles(
                 if let Some(background) = &level.background_asset_path {
                     parent.spawn((
                         Sprite {
-                            image: asset_server.load(background),
+                            image: asset_server.load(&background.0),
                             anchor: bevy::sprite::Anchor::TopLeft,
                             ..Default::default()
                         },
-                        Transform::from_xyz(0., 0., -100.),
+                        Transform::from_translation(background.1.extend(-100.)),
                     ));
                 }
 

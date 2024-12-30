@@ -373,7 +373,7 @@ impl LdtkWorld {
         for (level_identifier, composite) in self.extract_composites() {
             let path = PathBuf::new()
                 .join(&self.path)
-                .join(format!("{}_background_composite.png", &self.name));
+                .join(format!("{}_background_composite.png", &level_identifier));
             let mut file = File::create(&path).unwrap_or_else(|e| {
                 panic!(
                     "Error creating {} {} background composite file: {e}",
@@ -384,14 +384,18 @@ impl LdtkWorld {
             let level = levels
                 .entry(level_identifier.clone())
                 .or_insert_with(|| Level::default());
-            level.background_asset_path = Some(
+            level.background_asset_path = Some((
                 path.strip_prefix("assets/")
                     .expect("LDtk file is not in the assets folder")
                     .to_owned()
                     .into_os_string()
                     .into_string()
                     .unwrap(),
-            );
+                self.levels()
+                    .find(|l| l.identifier == level_identifier)
+                    .map(|l| Vec2::new(l.world_x as f32, -l.world_y as f32))
+                    .unwrap(),
+            ));
         }
 
         for (level, layer, tiles) in self
