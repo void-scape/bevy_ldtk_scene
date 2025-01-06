@@ -527,6 +527,7 @@ impl LdtkWorld {
                     .iter()
                     .filter_map(|f| parse_entity_field_value(f, &self.enum_registry))
                     .collect::<Vec<_>>();
+
                 let entity_marker = if fields.is_empty() {
                     quote! { super::#entity_name::default() }
                 } else {
@@ -715,8 +716,14 @@ fn parse_entity_field_type(
             EnumType::Enum(ty) => Some(quote! { pub #name: #ty }),
             EnumType::Marker(_) => panic!("an entity cannot have a marker enum"),
         }
+    } else if field.field_definition_type.contains("Float") {
+        let name = format_ident!("{}", field.identifier.to_case(Case::Snake));
+
+        Some(quote! {
+            pub #name: f32
+        })
     } else {
-        unimplemented!()
+        todo!("implement more data types")
     }
 }
 
@@ -724,8 +731,9 @@ fn parse_entity_field_value(
     field: &ldtk2::FieldInstance,
     enum_registry: &EnumRegistry,
 ) -> Option<proc_macro2::TokenStream> {
+    let name = format_ident!("{}", field.identifier.to_case(Case::Snake));
+
     if field.field_instance_type.contains("LocalEnum") {
-        let name = format_ident!("{}", field.identifier.to_case(Case::Snake));
         match enum_registry.type_path(
             &field
                 .field_instance_type
@@ -750,8 +758,19 @@ fn parse_entity_field_value(
             }
             EnumType::Marker(_) => panic!("an entity cannot have a marker enum"),
         }
+    } else if field.field_instance_type.contains("Float") {
+        let Some(Value::Number(number)) = field.value.as_ref() else {
+            panic!("Number didn't match expected shape");
+        };
+        let inner = number
+            .as_f64()
+            .expect("Numbers should be representable as floats") as f32;
+
+        Some(quote! {
+            #name: #inner
+        })
     } else {
-        None
+        todo!("implement more data types")
     }
 }
 
