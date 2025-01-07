@@ -170,15 +170,38 @@ impl LdtkWorld {
             &ldtk2::Level,
             &ldtk2::LayerInstance,
             impl Iterator<Item = &ldtk2::TileInstance>,
+            f32,
         ),
     > {
         self.layers()
             .map(|(level, layers)| {
-                layers.filter_map(move |l| match &*l.layer_instance_type {
-                    "IntGrid" => Some((level, l, l.auto_layer_tiles.iter())),
-                    "Tiles" => Some((level, l, l.grid_tiles.iter())),
-                    _ => None,
-                })
+                layers
+                    .enumerate()
+                    .filter_map(move |(z, l)| match &*l.layer_instance_type {
+                        "IntGrid" => Some((
+                            level,
+                            l,
+                            l.auto_layer_tiles.iter(),
+                            (level
+                                .layer_instances
+                                .as_ref()
+                                .map(|l| l.len())
+                                .unwrap_or_default()
+                                - z) as f32,
+                        )),
+                        "Tiles" => Some((
+                            level,
+                            l,
+                            l.grid_tiles.iter(),
+                            (level
+                                .layer_instances
+                                .as_ref()
+                                .map(|l| l.len())
+                                .unwrap_or_default()
+                                - z) as f32,
+                        )),
+                        _ => None,
+                    })
             })
             .flatten()
     }
@@ -190,14 +213,27 @@ impl LdtkWorld {
             &ldtk2::Level,
             &ldtk2::LayerInstance,
             impl Iterator<Item = &ldtk2::EntityInstance>,
+            f32,
         ),
     > {
         self.layers()
             .map(|(level, layers)| {
-                layers.filter_map(move |l| match &*l.layer_instance_type {
-                    "Entities" => Some((level, l, l.entity_instances.iter())),
-                    _ => None,
-                })
+                layers
+                    .enumerate()
+                    .filter_map(move |(z, l)| match &*l.layer_instance_type {
+                        "Entities" => Some((
+                            level,
+                            l,
+                            l.entity_instances.iter(),
+                            (level
+                                .layer_instances
+                                .as_ref()
+                                .map(|l| l.len())
+                                .unwrap_or_default()
+                                - z) as f32,
+                        )),
+                        _ => None,
+                    })
             })
             .flatten()
     }
@@ -383,7 +419,7 @@ impl LdtkWorld {
             composite.write_to(&mut file, ImageFormat::Png).unwrap();
             let level = levels
                 .entry(level_identifier.clone())
-                .or_insert_with(|| Level::default());
+                .or_insert_with(Level::default);
             level.background_asset_path = Some((
                 path.strip_prefix("assets/")
                     .expect("LDtk file is not in the assets folder")
@@ -398,18 +434,19 @@ impl LdtkWorld {
             ));
         }
 
-        for (level, layer, tiles) in self
+        for (level, layer, tiles, z) in self
             .tiles()
-            .filter(|(_, l, _)| !l.identifier.to_lowercase().contains("background"))
+            .filter(|(_, l, _, _)| !l.identifier.to_lowercase().contains("background"))
         {
             let extracted_level = levels
                 .entry(level.identifier.clone())
-                .or_insert_with(|| Level::default());
+                .or_insert_with(Level::default);
 
             if let Some(mut tileset) = layer.tileset_def_uid.and_then(|uid| {
                 self.tile_set_def(&TileSetUid(uid))
                     .map(|t| t.new_tile_set())
             }) {
+                tileset.z = z;
                 tileset.tiles = tiles
                     .map(|t| {
                         Tile::from_ldtk_tile(
@@ -429,7 +466,7 @@ impl LdtkWorld {
             extracted_level.tile_ron_data = save_tile_ron_data(level);
         }
 
-        for (level, _, entities) in self.entities() {
+        for (level, _, entities, z) in self.entities() {
             let extracted_level = extracted_levels
                 .entry(level.identifier.clone())
                 .or_insert_with(|| ExtractedLevel::from_uid(level.uid));
@@ -546,7 +583,7 @@ impl LdtkWorld {
                     data: quote! {
                         (
                             #entity_marker,
-                            Transform::from_translation(Vec2::new(#x, -#y).extend(100.)),
+                            Transform::from_translation(Vec2::new(#x, -#y).extend(#z)),
                             Visibility::Visible,
                             #sprite
                         )
@@ -862,6 +899,7 @@ impl TileSetDef {
             padding: self.def.padding as u32,
             uid: TileSetUid(self.def.uid),
             tiles: Vec::new(),
+            z: 0.,
         }
     }
 }

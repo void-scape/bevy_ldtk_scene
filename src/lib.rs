@@ -37,6 +37,7 @@ pub struct TileSet {
     pub padding: u32,
     pub uid: TileSetUid,
     pub tiles: Vec<Tile>,
+    pub z: f32,
 }
 
 #[derive(Debug, Reflect)]
@@ -114,7 +115,7 @@ fn spawn_level_tiles(
                     ));
                 }
 
-                for (z, tileset) in level.tilesets.iter().rev().enumerate() {
+                for tileset in level.tilesets.iter() {
                     match &tileset.ty {
                         TileSetType::Tiles(asset_path) => {
                             if let Some(asset_path) = asset_path {
@@ -156,7 +157,7 @@ fn spawn_level_tiles(
                                     let mut entity = parent.spawn((
                                         sprite,
                                         Transform::from_translation(Vec3::new(
-                                            tile.xy.x, -tile.xy.y, z as f32,
+                                            tile.xy.x, -tile.xy.y, tileset.z,
                                         )),
                                     ));
 
