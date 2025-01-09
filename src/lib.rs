@@ -140,6 +140,12 @@ fn spawn_level_tiles(
                                         })
                                         .collect::<Vec<_>>()
                                 });
+
+                                // TODO: autotile layers will place mutliple tiles on top of eachother,
+                                // which means we need some way to order the front from the back.
+                                // This method does not really leave much room for z ordering...
+                                let z_delta = 1. / (tileset.tiles.len() as f32 * 2.);
+                                let mut z = tileset.z;
                                 for tile in tileset.tiles.iter() {
                                     let mut sprite = Sprite {
                                         image: image.clone(),
@@ -157,7 +163,7 @@ fn spawn_level_tiles(
                                     let mut entity = parent.spawn((
                                         sprite,
                                         Transform::from_translation(Vec3::new(
-                                            tile.xy.x, -tile.xy.y, tileset.z,
+                                            tile.xy.x, -tile.xy.y, z,
                                         )),
                                     ));
 
@@ -168,6 +174,8 @@ fn spawn_level_tiles(
                                             }
                                         }
                                     }
+
+                                    z += z_delta;
                                 }
                             }
                         }

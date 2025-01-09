@@ -189,6 +189,17 @@ impl LdtkWorld {
                                 .unwrap_or_default()
                                 - z) as f32,
                         )),
+                        "AutoLayer" => Some((
+                            level,
+                            l,
+                            l.auto_layer_tiles.iter(),
+                            (level
+                                .layer_instances
+                                .as_ref()
+                                .map(|l| l.len())
+                                .unwrap_or_default()
+                                - z) as f32,
+                        )),
                         "Tiles" => Some((
                             level,
                             l,
@@ -821,6 +832,7 @@ impl LayerTiles for ldtk2::LayerInstance {
             self.tileset_def_uid.map(TileSetUid),
             match &*self.layer_instance_type {
                 "IntGrid" => self.auto_layer_tiles.iter(),
+                "AutoLayer" => self.auto_layer_tiles.iter(),
                 "Tiles" => self.grid_tiles.iter(),
                 // Should be emtpy
                 _ => self.grid_tiles.iter(),
