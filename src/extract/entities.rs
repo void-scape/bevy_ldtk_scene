@@ -6,9 +6,13 @@ use extract::{
     tiles::{TileSetRegistry, TileSetUid},
     world::{ExtractedComponent, FromLdtkWorld, IntoExtractedComponent},
 };
-use ldtk2::serde_json::Value;
+use ldtk2::{serde_json::Value, FieldInstance};
 use quote::{format_ident, quote, TokenStreamExt};
 use world::{ExtractLdtkWorld, LevelUid};
+
+pub trait DynLdtkEntity: 'static + Send + Sync + Debug {
+    fn insert(&self, field: &[ldtk2::FieldInstance], entity: &mut EntityCommands);
+}
 
 #[derive(
     Debug,
@@ -24,18 +28,18 @@ use world::{ExtractLdtkWorld, LevelUid};
 )]
 pub struct EntityUid(pub i64);
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Component, serde::Serialize, serde::Deserialize)]
 pub struct LdtkEntityInstance {
-    uid: EntityUid,
-    xyz: Vec3,
-    sprite: Option<LdtkEntitySprite>,
+    pub uid: EntityUid,
+    pub xyz: Vec3,
+    pub sprite: Option<LdtkEntitySprite>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LdtkEntitySprite {
-    image: String,
-    tileset: TileSetUid,
-    atlas: Atlas,
+    pub image: String,
+    pub tileset: TileSetUid,
+    pub atlas: Atlas,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -60,6 +64,16 @@ impl Atlas {
     }
 }
 
+#[derive(
+    Debug, Default, Clone, PartialEq, Eq, Hash, Component, serde::Deserialize, serde::Serialize,
+)]
+pub struct EntityInstanceUid(pub String);
+
+pub struct DynCompLdtkEntityInstance {
+    instance: LdtkEntityInstance,
+    entity: proc_macro2::TokenStream,
+}
+
 pub struct ExtractEntityInstances;
 
 impl IntoExtractedComponent<ExtractedEntityInstances> for ExtractEntityInstances {
@@ -70,66 +84,69 @@ impl IntoExtractedComponent<ExtractedEntityInstances> for ExtractEntityInstances
         world: &ExtractLdtkWorld,
         tileset_registry: Self::Context,
     ) -> ExtractedEntityInstances {
-        let mut instances = HashMap::<LevelUid, Vec<LdtkEntityInstance>>::default();
+        let mut instances = HashMap::<LevelUid, Vec<DynCompLdtkEntityInstance>>::default();
         let types = world.extract_component(ExtractEntityTypes);
         let enums = EnumRegistry::from_world(world);
 
         for (level, _, entities, z) in world.entities() {
             for entity in entities {
-                let ty = types.uids.get(&EntityUid(entity.def_uid)).unwrap();
-                match ty {
-                    EntityType::Marker(name) => {
-                        quote! { #name }
-                    }
-                    EntityType::Struct { name, fields } => {
-                        let fields = fields.iter().map(|field| {
-                            let field = entity
-                                .field_instances
-                                .iter()
-                                .find(|i| i.identifier == *field.0)
-                                .expect("invalid entity field");
-                            parse_entity_field_value(field, &enums)
-                                .expect("cannot parse field value")
-                        });
+                let entry = instances.entry(LevelUid(level.uid)).or_default();
+                entry.push(DynCompLdtkEntityInstance {
+                    instance: LdtkEntityInstance {
+                        uid: EntityUid(entity.def_uid),
+                        xyz: Vec3::new(entity.px[0] as f32, -entity.px[1] as f32, z),
+                        sprite: entity.tile.as_ref().map(|t| {
+                            let tileset = tileset_registry.tileset(TileSetUid(t.tileset_uid));
+                            LdtkEntitySprite {
+                                tileset: TileSetUid(t.tileset_uid),
+                                image: tileset.asset_image.clone(),
+                                atlas: entity
+                                    .tags
+                                    .iter()
+                                    .any(|t| t == "atlas")
+                                    .then(|| {
+                                        Atlas::Layout(TextureAtlasLayout::from_grid(
+                                            UVec2::splat(tileset.tile_size),
+                                            tileset.width,
+                                            tileset.height,
+                                            Some(UVec2::splat(tileset.spacing)),
+                                            Some(UVec2::splat(tileset.padding)),
+                                        ))
+                                    })
+                                    .unwrap_or(Atlas::Rect(Rect::new(
+                                        t.x as f32,
+                                        t.y as f32,
+                                        (t.x + t.w) as f32,
+                                        (t.y + t.h) as f32,
+                                    ))),
+                            }
+                        }),
+                    },
+                    entity: {
+                        let ty = types.uids.get(&EntityUid(entity.def_uid)).unwrap();
+                        match ty {
+                            EntityType::Marker(name) => {
+                                quote! { #name }
+                            }
+                            EntityType::Struct { name, fields } => {
+                                let fields = fields.iter().map(|field| {
+                                    let field = entity
+                                        .field_instances
+                                        .iter()
+                                        .find(|i| i.identifier == *field.0)
+                                        .expect("invalid entity field");
+                                    parse_entity_field_value(field, &enums)
+                                        .expect("cannot parse field value")
+                                });
 
-                        quote! {
-                            #name {
-                                #(#fields),*
+                                quote! {
+                                    #name {
+                                        #(#fields),*
+                                    }
+                                }
                             }
                         }
-                    }
-                };
-
-                let entry = instances.entry(LevelUid(level.uid)).or_default();
-                entry.push(LdtkEntityInstance {
-                    uid: EntityUid(entity.def_uid),
-                    xyz: Vec3::new(entity.px[0] as f32, -entity.px[1] as f32, z),
-                    sprite: entity.tile.as_ref().map(|t| {
-                        let tileset = tileset_registry.tileset(TileSetUid(t.tileset_uid));
-                        LdtkEntitySprite {
-                            tileset: TileSetUid(t.tileset_uid),
-                            image: tileset.asset_image.clone(),
-                            atlas: entity
-                                .tags
-                                .iter()
-                                .any(|t| t == "atlas")
-                                .then(|| {
-                                    Atlas::Layout(TextureAtlasLayout::from_grid(
-                                        UVec2::splat(tileset.tile_size),
-                                        tileset.width,
-                                        tileset.height,
-                                        Some(UVec2::splat(tileset.spacing)),
-                                        Some(UVec2::splat(tileset.padding)),
-                                    ))
-                                })
-                                .unwrap_or(Atlas::Rect(Rect::new(
-                                    t.x as f32,
-                                    t.y as f32,
-                                    (t.x + t.w) as f32,
-                                    (t.y + t.h) as f32,
-                                ))),
-                        }
-                    }),
+                    },
                 });
             }
         }
@@ -139,10 +156,21 @@ impl IntoExtractedComponent<ExtractedEntityInstances> for ExtractEntityInstances
 }
 
 pub struct ExtractedEntityInstances {
-    instances: HashMap<LevelUid, Vec<LdtkEntityInstance>>,
+    instances: HashMap<LevelUid, Vec<DynCompLdtkEntityInstance>>,
 }
 
-impl ExtractedComponent for ExtractedEntityInstances {}
+impl ExtractedComponent for ExtractedEntityInstances {
+    fn io(&self, io: &mut world::WorldIO) -> world::IOResult {
+        for (uid, data) in self.instances.iter() {
+            io.save_entities(
+                *uid,
+                &data.iter().map(|e| e.instance.clone()).collect::<Vec<_>>(),
+            )?;
+        }
+
+        Ok(())
+    }
+}
 
 pub struct CompLdtkEntityInstance {
     instance: LdtkEntityInstance,
@@ -245,7 +273,6 @@ impl ExtractedComponent for ExtractedCompEntities {
                 let entity_tokens = &entity.entity;
                 let entity = &entity.instance;
 
-                let uid = entity.uid.0;
                 let x = entity.xyz.x;
                 let y = entity.xyz.y;
                 let z = entity.xyz.z;
@@ -322,7 +349,6 @@ impl ExtractedComponent for ExtractedCompEntities {
                     commands.spawn(
                         (
                             ::bevy_ldtk_scene::process::entities::LevelEntity,
-                            ::bevy_ldtk_scene::extract::entities::EntityUid(#uid),
                             ::bevy::prelude::Transform::from_xyz(#x, #y, #z),
                             #sprite
                             #entity_tokens
@@ -423,13 +449,24 @@ impl ExtractedComponent for ExtractedEntityTypes {
                 }
             };
 
+            let insert_fields = match entity {
+                EntityType::Marker(_) => vec![],
+                EntityType::Struct { fields, .. } => fields
+                    .iter()
+                    .map(|(name, _)| {
+                        let name_ident = format_ident!("{}", name.to_case(Case::Snake));
+                        quote! { slf.#name_ident = ::bevy_ldtk_scene::extract::entities::FromField::from_field(fields.iter().find(|field| field.identifier == #name).expect("invalid field")); }
+                    })
+                    .collect(),
+            };
+
             let name = entity.name();
             let entity_mod = format_ident!("{}", name.to_string().to_case(Case::Snake));
             output.append_all(quote! {
                 mod #entity_mod {
                     use ::bevy::prelude::ReflectComponent;
 
-                    #[derive(Debug, Clone, Copy, PartialEq)]
+                    #[derive(Debug, Default, Clone, PartialEq)]
                     #[derive(::bevy::ecs::component::Component, ::bevy::reflect::Reflect)]
                     #[derive(serde::Serialize, serde::Deserialize)]
                     #[reflect(Component)]
@@ -437,14 +474,26 @@ impl ExtractedComponent for ExtractedEntityTypes {
                 }
                 #[allow(unused)]
                 pub use #entity_mod :: #name;
+                impl ::bevy_ldtk_scene::extract::entities::DynLdtkEntity for #entity_mod :: #name {
+                    fn insert(&self, fields: &[::bevy_ldtk_scene::ldtk2::FieldInstance], entity: &mut ::bevy::prelude::EntityCommands) {
+                        let mut slf = self.clone();
+                        #(#insert_fields)*
+                        entity.insert(slf);
+                    }
+                }
             });
         }
     }
 
     fn plugin(&self, output: &mut proc_macro2::TokenStream) {
-        for entity in self.names.values() {
+        for (uid, entity) in self.uids.iter() {
+            let uid = uid.0;
             let name = entity.name();
-            output.append_all(quote! { app.register_type::<#name>(); });
+            output.append_all(quote! {
+                app.register_type::<#name>();
+                let mut registry = app.world_mut().get_resource_or_insert_with(|| ::bevy_ldtk_scene::process::entities::LevelDynEntityRegistry::default());
+                registry.entities.insert(::bevy_ldtk_scene::extract::entities::EntityUid(#uid), Box::new(#name::default()));
+            });
         }
     }
 }
@@ -466,6 +515,28 @@ impl EntityType {
         }
     }
 }
+
+pub struct ExtractEntityFields;
+
+impl IntoExtractedComponent<ExtractedEntityFields> for ExtractEntityFields {
+    type Context = ();
+
+    fn extract(self, world: &ExtractLdtkWorld, _: Self::Context) -> ExtractedEntityFields {
+        ExtractedEntityFields(
+            world
+                .entities()
+                .flat_map(|(_, _, entities, _)| {
+                    entities
+                        .map(|entity| (EntityUid(entity.def_uid), entity.field_instances.clone()))
+                })
+                .collect(),
+        )
+    }
+}
+
+pub struct ExtractedEntityFields(pub HashMap<EntityUid, Vec<FieldInstance>>);
+
+impl ExtractedComponent for ExtractedEntityFields {}
 
 fn parse_entity_field_type(
     field: &ldtk2::FieldDefinition,
@@ -538,5 +609,15 @@ fn parse_entity_field_value(
             })
         }
         _ => todo!("implement more data types"),
+    }
+}
+
+pub trait FromField {
+    fn from_field(field: &ldtk2::FieldInstance) -> Self;
+}
+
+impl FromField for f32 {
+    fn from_field(field: &ldtk2::FieldInstance) -> Self {
+        field.value.as_ref().expect("f32").as_f64().expect("f32") as f32
     }
 }

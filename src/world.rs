@@ -1,7 +1,10 @@
 use crate::{
+    asset_loader::EntityInstances,
     extract::{
         composites::ExtractComposites,
-        entities::{ExtractCompEntities, ExtractEntityTypes, LdtkEntityInstance},
+        entities::{
+            ExtractCompEntities, ExtractEntityInstances, ExtractEntityTypes, LdtkEntityInstance,
+        },
         enums::ExtractEnums,
         tiles::{ExtractTileSets, TileSetInstance},
         world::{
@@ -36,6 +39,13 @@ impl LdtkWorld {
 
     pub fn tiles(&self) -> impl Iterator<Item = (&LevelUid, &Path)> {
         self.io.scene_tiles.iter().map(|(uid, p)| (uid, p.as_ref()))
+    }
+
+    pub fn entities(&self) -> impl Iterator<Item = (&LevelUid, &Path)> {
+        self.io
+            .scene_entities
+            .iter()
+            .map(|(uid, p)| (uid, p.as_ref()))
     }
 
     pub fn composites(&self) -> impl Iterator<Item = (&(LevelUid, LayerUid), &Path)> {
@@ -79,6 +89,7 @@ impl ExtractLdtkWorld {
             ExtractEntityTypes,
             ExtractTileSets,
             ExtractCompEntities,
+            ExtractEntityInstances,
         ))
     }
 
@@ -105,7 +116,7 @@ impl ExtractLdtkWorld {
 
     /// Default extraction of the data written to disk that is held by the LDtk world.
     pub fn extract_io(&mut self) -> Result<&Self, ExtractError> {
-        self.extract_with((ExtractComposites, ExtractTileSets))
+        self.extract_with((ExtractComposites, ExtractTileSets, ExtractEntityInstances))
     }
 
     pub fn extract_io_with<C: ExtractedComponent, E: IntoExtractedComponent<C>>(
@@ -279,7 +290,7 @@ impl WorldIO {
 
         let mut file = File::create(PathBuf::new().join(&self.dir.0).join(name))?;
         file.write_all(
-            ron::ser::to_string_pretty(&data, Default::default())
+            ron::ser::to_string_pretty(&EntityInstances(data.to_vec()), Default::default())
                 .unwrap()
                 .as_bytes(),
         )?;

@@ -21,6 +21,7 @@ proc-macro2 = { version = "1.0", default-features = false }
 thiserror = "2.0.10"
 libloading = "0.8.6"
 typetag = "0.2.19"
+rand = "0.8.5"
 
 [dependencies.image]
 version = "0.25.5"

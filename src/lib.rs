@@ -3,11 +3,12 @@
 use asset_loader::HotLdtkWorld;
 use bevy::prelude::*;
 use process::{
-    composites::Composite, entities::LevelEntityRegistry, tiles::LevelTileSets, ProcessSet,
+    composites::Composite, entities::DynLevelEntities, tiles::LevelTileSets, ProcessSet,
 };
 use std::{fmt::Debug, path::PathBuf};
 use world::{ExtractLdtkWorld, LdtkWorld};
 
+pub extern crate ldtk2;
 pub extern crate serde;
 pub extern crate typetag;
 
@@ -23,17 +24,21 @@ impl Plugin for LdtkScenePlugin {
         app.init_asset::<world::LdtkWorld>()
             .init_asset::<asset_loader::HotLdtkWorld>()
             .init_asset::<asset_loader::LevelTileSetInstances>()
+            .init_asset::<asset_loader::EntityInstances>()
             .init_asset_loader::<asset_loader::LdtkWorldAssetLoader>()
             .init_asset_loader::<asset_loader::HotAssetLoader>()
             .init_asset_loader::<asset_loader::TileSetAssetLoader>()
+            .init_asset_loader::<asset_loader::EntityAssetLoader>()
             .add_systems(
                 PreUpdate,
                 (
                     (spawn_world, update_world).before(ProcessSet),
                     (
-                        process::entities::spawn_entities,
                         process::tiles::process_tilesets,
                         process::tiles::update_tilesets,
+                        process::entities::spawn_entities,
+                        process::entities::process_entities,
+                        process::entities::update_entities,
                     )
                         .in_set(ProcessSet),
                 ),
@@ -54,21 +59,26 @@ pub fn spawn_world(
     world_query: Query<(Entity, &World), Without<Spawned>>,
     worlds: Res<Assets<LdtkWorld>>,
     server: Res<AssetServer>,
-    registry: Res<LevelEntityRegistry>,
+    // registry: Res<LevelEntityRegistry>,
 ) {
     for (entity, world) in world_query.iter() {
         if let Some(world) = worlds.get(&world.0) {
             commands.entity(entity).insert(Spawned);
 
-            for (uid, path) in world.tiles() {
-                if let Some(id) = registry.entities.get(uid) {
-                    commands.run_system(*id);
-                }
+            for (_, path) in world.tiles() {
+                // if let Some(id) = registry.entities.get(uid) {
+                //     commands.run_system(*id);
+                // }
 
-                commands.entity(entity).with_children(|root| {
-                    root.spawn(LevelTileSets(server.load(path)));
-                    // root.spawn(LevelEntities(*uid));
-                });
+                commands
+                    .entity(entity)
+                    .with_child(LevelTileSets(server.load(path)));
+            }
+
+            for (_, path) in world.entities() {
+                commands
+                    .entity(entity)
+                    .with_child(DynLevelEntities(server.load(path)));
             }
 
             for (_, path) in world.composites() {
