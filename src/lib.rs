@@ -1,189 +1,96 @@
-use bevy::prelude::*;
-use bevy::utils::hashbrown::HashMap;
-use comp::TileSetUid;
-use ldtk2::TileInstance;
+#![allow(clippy::type_complexity)]
 
-pub mod comp;
+use asset_loader::HotLdtkWorld;
+use bevy::prelude::*;
+use process::{
+    composites::Composite, entities::LevelEntityRegistry, tiles::LevelTileSets, ProcessSet,
+};
+use std::{fmt::Debug, path::PathBuf};
+use world::{ExtractLdtkWorld, LdtkWorld};
+
+pub extern crate serde;
+pub extern crate typetag;
+
+pub mod asset_loader;
+pub mod extract;
+pub mod process;
+pub mod world;
 
 pub struct LdtkScenePlugin;
 
 impl Plugin for LdtkScenePlugin {
     fn build(&self, app: &mut App) {
-        comp::register_types(app);
-        app.insert_resource(LevelTileEnums::default())
-            .add_systems(PreUpdate, spawn_level_tiles);
+        app.init_asset::<world::LdtkWorld>()
+            .init_asset::<asset_loader::HotLdtkWorld>()
+            .init_asset::<asset_loader::LevelTileSetInstances>()
+            .init_asset_loader::<asset_loader::LdtkWorldAssetLoader>()
+            .init_asset_loader::<asset_loader::HotAssetLoader>()
+            .init_asset_loader::<asset_loader::TileSetAssetLoader>()
+            .add_systems(
+                PreUpdate,
+                (
+                    (spawn_world, update_world).before(ProcessSet),
+                    (
+                        process::entities::spawn_entities,
+                        process::tiles::process_tilesets,
+                        process::tiles::update_tilesets,
+                    )
+                        .in_set(ProcessSet),
+                ),
+            );
     }
 }
 
-#[derive(Debug, Default, Reflect, Component)]
-#[reflect(Component)]
-pub struct LevelUid(pub i64);
+#[derive(Debug, Component)]
+#[require(Visibility, Transform)]
+pub struct World(pub Handle<LdtkWorld>);
 
-#[derive(Debug, Default, Reflect, Component)]
-#[reflect(Component)]
-pub struct Level {
-    pub uid: LevelUid,
-    pub tilesets: Vec<TileSet>,
-    pub background_asset_path: Option<(String, Vec2)>,
-}
+#[derive(Debug, Component)]
+#[require(Visibility, Transform)]
+pub struct HotWorld(pub Handle<HotLdtkWorld>);
 
-#[derive(Debug, Reflect)]
-pub struct TileSet {
-    pub ty: TileSetType,
-    pub tile_size: u32,
-    pub width: u32,
-    pub height: u32,
-    pub spacing: u32,
-    pub padding: u32,
-    pub uid: TileSetUid,
-    pub tiles: Vec<Tile>,
-    pub z: f32,
-}
-
-#[derive(Debug, Reflect)]
-pub enum TileSetType {
-    /// Asset path
-    Tiles(Option<String>),
-    IntGrid,
-}
-
-impl TileSetType {
-    pub fn expect_tiles(&self) -> Option<&String> {
-        match self {
-            Self::Tiles(tiles) => tiles.as_ref(),
-            _ => panic!("expected tiles"),
-        }
-    }
-}
-
-#[derive(Debug, Reflect)]
-pub struct Tile {
-    pub xy: Vec2,
-    pub index: u32,
-    pub flip_x: bool,
-    pub flip_y: bool,
-}
-
-impl Tile {
-    pub fn from_ldtk_tile(tile: &TileInstance, offset: Option<Vec2>) -> Self {
-        Self {
-            xy: Vec2::new(tile.px[0] as f32, tile.px[1] as f32) + offset.unwrap_or_default(),
-            index: tile.t as u32,
-            flip_x: tile.f & 1 == 1,
-            flip_y: tile.f & 2 == 2,
-        }
-    }
-}
-
-pub trait TileEnum: 'static + Send + Sync {
-    fn insert(&self, entity: &mut EntityCommands<'_>);
-}
-
-impl<T> TileEnum for T
-where
-    T: Clone + Component,
-{
-    fn insert(&self, entity: &mut EntityCommands<'_>) {
-        entity.insert(self.clone());
-    }
-}
-
-#[derive(Default, Resource)]
-pub struct LevelTileEnums(pub HashMap<TileSetUid, Vec<(Box<dyn TileEnum>, &'static [u32])>>);
-
-fn spawn_level_tiles(
+pub fn spawn_world(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    levels: Query<(Entity, &Level), Added<Level>>,
-    mut atlases: ResMut<Assets<TextureAtlasLayout>>,
-    registry: Res<LevelTileEnums>,
+    world_query: Query<(Entity, &World), Without<Spawned>>,
+    worlds: Res<Assets<LdtkWorld>>,
+    server: Res<AssetServer>,
+    registry: Res<LevelEntityRegistry>,
 ) {
-    for (entity, level) in levels.iter() {
-        commands
-            .entity(entity)
-            .insert((Transform::default(), Visibility::Visible))
-            .remove::<Level>()
-            .with_children(|parent| {
-                if let Some(background) = &level.background_asset_path {
-                    parent.spawn((
-                        Sprite {
-                            image: asset_server.load(&background.0),
-                            anchor: bevy::sprite::Anchor::TopLeft,
-                            ..Default::default()
-                        },
-                        Transform::from_translation(background.1.extend(-100.)),
-                    ));
+    for (entity, world) in world_query.iter() {
+        if let Some(world) = worlds.get(&world.0) {
+            commands.entity(entity).insert(Spawned);
+
+            for (uid, path) in world.tiles() {
+                if let Some(id) = registry.entities.get(uid) {
+                    commands.run_system(*id);
                 }
+                commands.entity(entity).with_children(|root| {
+                    root.spawn(LevelTileSets(server.load(path)));
+                    // root.spawn(LevelEntities(*uid));
+                });
+            }
 
-                for tileset in level.tilesets.iter() {
-                    match &tileset.ty {
-                        TileSetType::Tiles(asset_path) => {
-                            if let Some(asset_path) = asset_path {
-                                let layout = atlases.add(TextureAtlasLayout::from_grid(
-                                    UVec2::splat(tileset.tile_size),
-                                    tileset.width,
-                                    tileset.height,
-                                    None,
-                                    None,
-                                ));
-                                let image = asset_server.load(asset_path);
-
-                                let enum_hash = registry.0.get(&tileset.uid).map(|r| {
-                                    r.iter()
-                                        .map(|r| {
-                                            (
-                                                &r.0,
-                                                r.1.iter()
-                                                    .map(|idx| (*idx, ()))
-                                                    .collect::<HashMap<u32, ()>>(),
-                                            )
-                                        })
-                                        .collect::<Vec<_>>()
-                                });
-
-                                // TODO: autotile layers will place mutliple tiles on top of eachother,
-                                // which means we need some way to order the front from the back.
-                                // This method does not really leave much room for z ordering...
-                                let z_delta = 1. / (tileset.tiles.len() as f32 * 2.);
-                                let mut z = tileset.z;
-                                for tile in tileset.tiles.iter() {
-                                    let mut sprite = Sprite {
-                                        image: image.clone(),
-                                        texture_atlas: Some(TextureAtlas {
-                                            index: tile.index as usize,
-                                            layout: layout.clone(),
-                                        }),
-                                        anchor: bevy::sprite::Anchor::TopLeft,
-                                        ..Default::default()
-                                    };
-
-                                    sprite.flip_x = tile.flip_x;
-                                    sprite.flip_y = tile.flip_y;
-
-                                    let mut entity = parent.spawn((
-                                        sprite,
-                                        Transform::from_translation(Vec3::new(
-                                            tile.xy.x, -tile.xy.y, z,
-                                        )),
-                                    ));
-
-                                    if let Some(enums) = &enum_hash {
-                                        for (component, index) in enums.iter() {
-                                            if index.get(&tile.index).is_some() {
-                                                component.insert(&mut entity);
-                                            }
-                                        }
-                                    }
-
-                                    z += z_delta;
-                                }
-                            }
-                        }
-                        _ => {
-                            unimplemented!()
-                        }
-                    }
-                }
-            });
+            for (_, path) in world.composites() {
+                commands
+                    .entity(entity)
+                    .with_child(Composite(path.to_string_lossy().to_string()));
+            }
+        }
     }
 }
+
+pub fn update_world(mut reader: EventReader<AssetEvent<HotLdtkWorld>>, server: Res<AssetServer>) {
+    for event in reader.read() {
+        if let AssetEvent::Modified { id } = event {
+            if let Some(path) = server.get_path(id.untyped()) {
+                ExtractLdtkWorld::new(PathBuf::new().join("assets/").join(path.path()))
+                    .unwrap()
+                    .extract_io()
+                    .unwrap();
+            }
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct Spawned;
