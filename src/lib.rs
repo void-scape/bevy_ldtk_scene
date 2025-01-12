@@ -64,6 +64,7 @@ pub fn spawn_world(
                 if let Some(id) = registry.entities.get(uid) {
                     commands.run_system(*id);
                 }
+
                 commands.entity(entity).with_children(|root| {
                     root.spawn(LevelTileSets(server.load(path)));
                     // root.spawn(LevelEntities(*uid));
