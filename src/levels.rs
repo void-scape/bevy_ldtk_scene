@@ -45,6 +45,7 @@ impl LevelLoader {
         }
     }
 
+    /// Despawn all levels of type [`LevelUid`].
     pub fn despawn(&mut self, uid: LevelUid) -> &mut Self {
         self.despawn.push(uid);
         self
@@ -152,12 +153,6 @@ pub fn spawn_levels(
     {
         if let Some(world) = worlds.get(&world.0) {
             for (level, position) in std::mem::take(&mut load_levels.load).into_iter() {
-                // if level_cache.contains(level) {
-                //     continue;
-                // }
-
-                println!("spawning level: {:#?}", level);
-
                 let level_entity = commands
                     .spawn((
                         Level::new(level, *meta_registry.meta(level).unwrap()),

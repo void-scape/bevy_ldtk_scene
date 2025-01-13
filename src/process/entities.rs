@@ -50,6 +50,9 @@ impl EntitySystemInput {
     }
 }
 
+#[derive(Component)]
+pub struct Populated;
+
 pub fn spawn_entities(
     mut commands: Commands,
     entity_query: Query<(Entity, &LevelEntities, &Parent), Without<Populated>>,
@@ -81,21 +84,19 @@ pub struct LevelDynEntityRegistry {
 #[derive(Debug, Default, Component)]
 pub struct WorldlyEntities(pub HashSet<EntityUid>);
 
-#[derive(Component)]
-pub struct Populated;
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn process_dyn_entities(
     mut commands: Commands,
     server: Res<AssetServer>,
-    entity_query: Query<(Entity, &DynLevelEntities), Without<Populated>>,
+    entity_query: Query<(Entity, &DynLevelEntities, &Parent), Without<Populated>>,
     entities: Res<Assets<EntityInstances>>,
     mut layouts: ResMut<Assets<TextureAtlasLayout>>,
     registry: Res<LevelDynEntityRegistry>,
-    world: Option<Single<(&HotWorld, &mut WorldlyEntities)>>,
+    world: Option<Single<(Entity, &HotWorld, &mut WorldlyEntities)>>,
     worlds: Res<Assets<HotLdtkWorld>>,
+    levels: Query<&Transform, With<Level>>,
 ) {
-    let Some((world, mut worldly)) = world.map(|w| w.into_inner()) else {
+    let Some((world_entity, world, mut worldly)) = world.map(|w| w.into_inner()) else {
         return;
     };
 
@@ -103,11 +104,19 @@ pub(crate) fn process_dyn_entities(
         return;
     };
 
+    if entity_query.is_empty() {
+        return;
+    }
+
     let fields = world.0.extract_component(ExtractEntityFields);
 
     let mut atlas_registry = HashMap::<(UVec2, Vec<URect>), Handle<TextureAtlasLayout>>::default();
-    for (entity, dyn_entities) in entity_query.iter() {
+    for (entity, dyn_entities, parent) in entity_query.iter() {
         let Some(entities) = entities.get(&dyn_entities.0) else {
+            continue;
+        };
+
+        let Ok(level) = levels.get(parent.get()) else {
             continue;
         };
 
@@ -118,9 +127,36 @@ pub(crate) fn process_dyn_entities(
                         continue;
                     } else {
                         let new_entity = if ldtk_entity.worldly {
-                            commands.spawn(WorldlyEntity).id()
+                            let id = commands
+                                .spawn((
+                                    WorldlyEntity,
+                                    Transform::from_translation(
+                                        ldtk_entity.xyz + level.translation,
+                                    ),
+                                ))
+                                .id();
+                            commands.entity(world_entity).add_child(id);
+
+                            info!(
+                                "spawning worldly entity {:?} at {:?}",
+                                component,
+                                ldtk_entity.xyz + level.translation
+                            );
+
+                            id
                         } else {
-                            commands.spawn(LevelEntity).id()
+                            let id = commands
+                                .spawn((LevelEntity, Transform::from_translation(ldtk_entity.xyz)))
+                                .id();
+                            commands.entity(entity).add_child(id);
+
+                            info!(
+                                "spawning level entity {:?} at {:?}",
+                                component,
+                                ldtk_entity.xyz + level.translation
+                            );
+
+                            id
                         };
 
                         component.insert(fields, &mut commands.entity(new_entity));
@@ -163,40 +199,25 @@ pub(crate) fn process_dyn_entities(
 
                 commands.entity(new_entity).insert(sprite);
             }
-
-            commands
-                .entity(new_entity)
-                .insert(Transform::from_translation(ldtk_entity.xyz));
-
-            commands
-                .entity(entity)
-                .insert(Populated)
-                .add_child(new_entity);
         }
+
+        commands.entity(entity).insert(Populated);
     }
 }
 
 pub fn update_dyn_entities(
     mut commands: Commands,
     mut reader: EventReader<AssetEvent<EntityInstances>>,
-    handle_query: Query<(Entity, &Children, &DynLevelEntities)>,
-    entities: Query<Entity, (With<LevelEntity>, Without<WorldlyEntity>)>,
+    handle_query: Query<Entity, With<DynLevelEntities>>,
 ) {
     for event in reader.read() {
-        if let AssetEvent::Modified { id } = event {
-            for (entity, children) in
-                handle_query
-                    .iter()
-                    .filter_map(|(entity, children, handle)| {
-                        (handle.0.id() == *id).then_some((entity, children))
-                    })
-            {
-                commands.entity(entity).remove::<Populated>();
-                for child in children.iter() {
-                    if entities.get(*child).is_ok() {
-                        commands.entity(*child).despawn();
-                    }
-                }
+        // sometimes a dyn entities doesn't update so just flushing all of them in any change.
+        if let AssetEvent::Modified { .. } = event {
+            for entity in handle_query.iter() {
+                commands
+                    .entity(entity)
+                    .remove::<Populated>()
+                    .despawn_descendants();
             }
         }
     }
