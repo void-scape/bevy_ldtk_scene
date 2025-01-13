@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use quote::{quote, ToTokens, TokenStreamExt};
 
 #[derive(Component)]
+
 pub struct Composite(pub String);
 
 pub struct CompositeProcessor;
@@ -16,15 +17,11 @@ impl Process for CompositeProcessor {
         entity: &mut bevy::prelude::EntityCommands,
         server: &mut <Self::Param as bevy::ecs::system::SystemParam>::Item<'_, '_>,
     ) {
-        entity.insert((
-            Sprite {
-                image: server.load(&component.0),
-                anchor: bevy::sprite::Anchor::TopLeft,
-                ..Default::default()
-            },
-            // Transform::from_translation(Vec2::ZERO.extend(-100.))
-            // Transform::from_translation(background.1.extend(-100.)),
-        ));
+        entity.insert(Sprite {
+            image: server.load(&component.0),
+            anchor: bevy::sprite::Anchor::TopLeft,
+            ..Default::default()
+        });
     }
 }
 

@@ -33,6 +33,7 @@ pub struct LdtkEntityInstance {
     pub uid: EntityUid,
     pub xyz: Vec3,
     pub sprite: Option<LdtkEntitySprite>,
+    pub worldly: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -93,6 +94,7 @@ impl IntoExtractedComponent<ExtractedEntityInstances> for ExtractEntityInstances
                 let entry = instances.entry(LevelUid(level.uid)).or_default();
                 entry.push(DynCompLdtkEntityInstance {
                     instance: LdtkEntityInstance {
+                        worldly: entity.tags.iter().any(|t| t.to_lowercase() == "worldly"),
                         uid: EntityUid(entity.def_uid),
                         xyz: Vec3::new(entity.px[0] as f32, -entity.px[1] as f32, z),
                         sprite: entity.tile.as_ref().map(|t| {
@@ -196,6 +198,7 @@ impl IntoExtractedComponent<ExtractedCompEntities> for ExtractCompEntities {
                 let entry = instances.entry(LevelUid(level.uid)).or_default();
                 entry.push(CompLdtkEntityInstance {
                     instance: LdtkEntityInstance {
+                        worldly: entity.tags.iter().any(|t| t.to_lowercase() == "worldly"),
                         uid: EntityUid(entity.def_uid),
                         xyz: Vec3::new(entity.px[0] as f32, -entity.px[1] as f32, z),
                         sprite: entity.tile.as_ref().map(|t| {
@@ -345,21 +348,63 @@ impl ExtractedComponent for ExtractedCompEntities {
                     })
                     .unwrap_or_default();
 
-                entities.push(quote! {
-                    commands.spawn(
-                        (
-                            ::bevy_ldtk_scene::process::entities::LevelEntity,
-                            ::bevy::prelude::Transform::from_xyz(#x, #y, #z),
-                            #sprite
-                            #entity_tokens
-                        )
-                    );
+                entities.push(if entity.worldly {
+                    let uid = entity.uid.0;
+                    quote! {
+                        if worldly.0.insert(::bevy_ldtk_scene::extract::entities::EntityUid(#uid)) {
+                            commands.entity(input.world()).with_child(
+                                (
+                                    ::bevy_ldtk_scene::process::entities::LevelEntity,
+                                    ::bevy::prelude::Transform::from_translation(
+                                        ::bevy::prelude::Vec3::new(#x, #y, #z) + level_transform.translation
+                                    ),
+                                    #sprite
+                                    #entity_tokens
+                                )
+                            );
+                        }
+                    }
+                } else {
+                    quote! {
+                        commands.entity(input.level()).with_child(
+                            (
+                                ::bevy_ldtk_scene::process::entities::LevelEntity,
+                                ::bevy::prelude::Transform::from_xyz(#x, #y, #z),
+                                #sprite
+                                #entity_tokens
+                            )
+                        );
+                    }
                 });
             }
 
             let func = format_ident!("entities_{}", level.0.to_string());
             output.append_all(quote! {
-                fn #func (mut commands: ::bevy::prelude::Commands, server: ::bevy::prelude::Res<::bevy::prelude::AssetServer>, mut atlases: ::bevy::prelude::ResMut<::bevy::prelude::Assets<::bevy::prelude::TextureAtlasLayout>>) {
+                fn #func (
+                    input: ::bevy::prelude::In<::bevy_ldtk_scene::process::entities::EntitySystemInput>,
+                    mut commands: ::bevy::prelude::Commands,
+                    server: ::bevy::prelude::Res<::bevy::prelude::AssetServer>,
+                    mut atlases: ::bevy::prelude::ResMut<::bevy::prelude::Assets<::bevy::prelude::TextureAtlasLayout>>,
+                    mut worldly_query: ::bevy::prelude::Query<&mut ::bevy_ldtk_scene::process::entities::WorldlyEntities>,
+                    level_query: ::bevy::prelude::Query<&::bevy::prelude::Parent>,
+                    transforms: ::bevy::prelude::Query<&::bevy::prelude::Transform>,
+                ) {
+                    let Ok(mut worldly) = worldly_query.get_mut(input.world()) else {
+                        ::bevy::prelude::error!("failed to spawn entities: could not retrieve [WorldlyEntities]");
+                        return;
+                    };
+
+                    let Ok(level) = level_query.get(input.level()) else {
+                        ::bevy::prelude::error!("failed to spawn entities: could not retrieve level entities [Parent]");
+                        return;
+                    };
+
+                    let Ok(level_transform) = transforms.get(level.get()) else {
+                        ::bevy::prelude::error!("failed to spawn entities: could not retrieve level [Transform]");
+                        return;
+                    };
+
+                    use ::bevy::prelude::BuildChildren;
                     #layout_output
                     #(#entities)*
                 }

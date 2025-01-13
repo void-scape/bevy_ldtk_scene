@@ -2,9 +2,8 @@
 
 use asset_loader::HotLdtkWorld;
 use bevy::prelude::*;
-use process::{
-    composites::Composite, entities::DynLevelEntities, tiles::LevelTileSets, ProcessSet,
-};
+use levels::{LevelLoader, LevelMetaRegistry, LoadedLevels};
+use process::{entities::WorldlyEntities, ProcessSet};
 use std::{fmt::Debug, path::PathBuf};
 use world::{ExtractLdtkWorld, LdtkWorld};
 
@@ -14,8 +13,16 @@ pub extern crate typetag;
 
 pub mod asset_loader;
 pub mod extract;
+pub mod levels;
 pub mod process;
 pub mod world;
+
+pub mod prelude {
+    pub use crate::extract::levels::LevelMetaExt;
+    pub use crate::levels::LevelLoader;
+    pub use crate::world::{LayerUid, LevelUid};
+    pub use crate::{HotWorld, World};
+}
 
 pub struct LdtkScenePlugin;
 
@@ -29,16 +36,24 @@ impl Plugin for LdtkScenePlugin {
             .init_asset_loader::<asset_loader::HotAssetLoader>()
             .init_asset_loader::<asset_loader::TileSetAssetLoader>()
             .init_asset_loader::<asset_loader::EntityAssetLoader>()
+            .insert_resource(LevelMetaRegistry::default())
             .add_systems(
                 PreUpdate,
                 (
-                    (spawn_world, update_world).before(ProcessSet),
+                    (
+                        levels::sync_level_meta,
+                        levels::spawn_levels,
+                        levels::despawn_levels,
+                        reload_world,
+                    )
+                        .chain()
+                        .before(ProcessSet),
                     (
                         process::tiles::process_tilesets,
                         process::tiles::update_tilesets,
                         process::entities::spawn_entities,
-                        process::entities::process_entities,
-                        process::entities::update_entities,
+                        process::entities::process_dyn_entities,
+                        process::entities::update_dyn_entities,
                     )
                         .in_set(ProcessSet),
                 ),
@@ -46,51 +61,17 @@ impl Plugin for LdtkScenePlugin {
     }
 }
 
+/// Root of a collection of [`levels::Level`] entities.
 #[derive(Debug, Component)]
-#[require(Visibility, Transform)]
+#[require(Visibility, Transform, LevelLoader, LoadedLevels, WorldlyEntities)]
 pub struct World(pub Handle<LdtkWorld>);
 
+/// When used in conjunction with [`World`], marks this entity for dynamic hot reloading.
 #[derive(Debug, Component)]
 #[require(Visibility, Transform)]
 pub struct HotWorld(pub Handle<HotLdtkWorld>);
 
-pub fn spawn_world(
-    mut commands: Commands,
-    world_query: Query<(Entity, &World), Without<Spawned>>,
-    worlds: Res<Assets<LdtkWorld>>,
-    server: Res<AssetServer>,
-    // registry: Res<LevelEntityRegistry>,
-) {
-    for (entity, world) in world_query.iter() {
-        if let Some(world) = worlds.get(&world.0) {
-            commands.entity(entity).insert(Spawned);
-
-            for (_, path) in world.tiles() {
-                // if let Some(id) = registry.entities.get(uid) {
-                //     commands.run_system(*id);
-                // }
-
-                commands
-                    .entity(entity)
-                    .with_child(LevelTileSets(server.load(path)));
-            }
-
-            for (_, path) in world.entities() {
-                commands
-                    .entity(entity)
-                    .with_child(DynLevelEntities(server.load(path)));
-            }
-
-            for (_, path) in world.composites() {
-                commands
-                    .entity(entity)
-                    .with_child(Composite(path.to_string_lossy().to_string()));
-            }
-        }
-    }
-}
-
-pub fn update_world(mut reader: EventReader<AssetEvent<HotLdtkWorld>>, server: Res<AssetServer>) {
+pub fn reload_world(mut reader: EventReader<AssetEvent<HotLdtkWorld>>, server: Res<AssetServer>) {
     for event in reader.read() {
         if let AssetEvent::Modified { id } = event {
             if let Some(path) = server.get_path(id.untyped()) {
@@ -102,6 +83,3 @@ pub fn update_world(mut reader: EventReader<AssetEvent<HotLdtkWorld>>, server: R
         }
     }
 }
-
-#[derive(Component)]
-pub struct Spawned;

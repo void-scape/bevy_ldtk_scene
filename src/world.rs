@@ -6,6 +6,7 @@ use crate::{
             ExtractCompEntities, ExtractEntityInstances, ExtractEntityTypes, LdtkEntityInstance,
         },
         enums::ExtractEnums,
+        levels::ExtractLevelUids,
         tiles::{ExtractTileSets, TileSetInstance},
         world::{
             ExtractedComponent, FromLdtkWorld, IntoExtractedComponent, WorldDirPath, WorldPlugin,
@@ -27,6 +28,7 @@ use thiserror::Error;
 #[derive(Debug, TypePath, Asset, serde::Serialize, serde::Deserialize)]
 pub struct LdtkWorld {
     io: WorldIO,
+    levels: Vec<LevelUid>,
 }
 
 impl LdtkWorld {
@@ -35,6 +37,10 @@ impl LdtkWorld {
         let mut file = File::create(path.as_ref())?;
         file.write_all(ron.as_bytes())?;
         Ok(())
+    }
+
+    pub fn levels(&self) -> &[LevelUid] {
+        &self.levels
     }
 
     pub fn tiles(&self) -> impl Iterator<Item = (&LevelUid, &Path)> {
@@ -90,6 +96,7 @@ impl ExtractLdtkWorld {
             ExtractTileSets,
             ExtractCompEntities,
             ExtractEntityInstances,
+            ExtractLevelUids,
         ))
     }
 
@@ -139,6 +146,7 @@ impl ExtractLdtkWorld {
     pub fn world(&self) -> LdtkWorld {
         LdtkWorld {
             io: self.io.clone(),
+            levels: self.levels().map(|l| LevelUid(l.uid)).collect(),
         }
     }
 
