@@ -20,7 +20,7 @@ use std::fmt::Debug;
 /// Queued levels for a [`World`] to spawn.
 #[derive(Debug, Default, Component)]
 pub struct LevelLoader {
-    load: HashMap<LevelUid, Vec3>,
+    load: Vec<(LevelUid, Vec3)>,
     despawn: Vec<LevelUid>,
     /// Local registry is drained into global registry every frame.
     registry: LevelMetaRegistry,
@@ -60,6 +60,10 @@ impl LevelLoader {
 pub struct LevelMetaRegistry(HashMap<LevelUid, LevelMeta>);
 
 impl LevelMetaRegistry {
+    pub fn register(&mut self, uid: LevelUid, meta: LevelMeta) {
+        self.0.insert(uid, meta);
+    }
+
     pub fn meta(&self, uid: LevelUid) -> Option<&LevelMeta> {
         self.0.get(&uid)
     }
@@ -152,9 +156,7 @@ pub fn spawn_levels(
         world_query.iter_mut()
     {
         if let Some(world) = worlds.get(&world.0) {
-            for (level, position) in std::mem::take(&mut load_levels.load).into_iter() {
-                println!("spawning level: {:?}", level);
-
+            for (level, position) in load_levels.load.drain(..) {
                 let level_entity = commands
                     .spawn((
                         Level::new(level, *meta_registry.meta(level).unwrap()),
