@@ -153,10 +153,12 @@ pub fn spawn_levels(
     {
         if let Some(world) = worlds.get(&world.0) {
             for (level, position) in std::mem::take(&mut load_levels.load).into_iter() {
+                println!("spawning level: {:?}", level);
+
                 let level_entity = commands
                     .spawn((
                         Level::new(level, *meta_registry.meta(level).unwrap()),
-                        Transform::from_translation(position),
+                        Transform::from_translation(Vec3::new(position.x, -position.y, position.z)),
                     ))
                     .with_children(|root| {
                         if hot_reload.is_some() {

@@ -182,23 +182,30 @@ impl IntoExtractedComponent<ExtractedTileSets> for ExtractTileSets {
                     instances: Vec::new(),
                 });
 
+            let max_x = level.px_wid as f32;
+            let max_y = level.px_hei as f32;
             entry.instances.push(TileSetInstance {
                 tileset: tileset_registry
                     .tileset(TileSetUid(layer.tileset_def_uid.unwrap()))
                     .clone(),
                 tiles: tiles
-                    .map(|t| {
-                        if is_composite {
-                            Tile::from_xy(Vec2::new(t.px[0] as f32, t.px[1] as f32), t.t as u32)
+                    .filter_map(|t| {
+                        let xy = Vec2::new(t.px[0] as f32, t.px[1] as f32);
+                        if xy.x < max_x && xy.y < max_y {
+                            Some(if is_composite {
+                                Tile::from_xy(xy, t.t as u32)
+                            } else {
+                                Tile::new(
+                                    xy,
+                                    t.t as u32,
+                                    SpriteMeta {
+                                        flip_x: t.f & 1 == 1,
+                                        flip_y: t.f & 2 == 2,
+                                    },
+                                )
+                            })
                         } else {
-                            Tile::new(
-                                Vec2::new(t.px[0] as f32, t.px[1] as f32),
-                                t.t as u32,
-                                SpriteMeta {
-                                    flip_x: t.f & 1 == 1,
-                                    flip_y: t.f & 2 == 2,
-                                },
-                            )
+                            None
                         }
                     })
                     .collect(),
