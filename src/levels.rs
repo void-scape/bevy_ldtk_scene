@@ -216,10 +216,40 @@ impl<T: LevelMetaExt> LevelSet for T {
     }
 }
 
+impl<T: LevelMetaExt> LevelSet for (T, Vec2) {
+    fn into_loader(self, registry: &mut LevelMetaRegistry) -> Vec<(LevelUid, Vec3)> {
+        registry.0.insert(T::uid(), T::meta());
+        vec![(T::uid(), self.1.extend(0.))]
+    }
+}
+
+impl<T: LevelMetaExt> LevelSet for (T, Vec3) {
+    fn into_loader(self, registry: &mut LevelMetaRegistry) -> Vec<(LevelUid, Vec3)> {
+        registry.0.insert(T::uid(), T::meta());
+        vec![(T::uid(), self.1)]
+    }
+}
+
 impl LevelSet for LevelMeta {
     fn into_loader(self, registry: &mut LevelMetaRegistry) -> Vec<(LevelUid, Vec3)> {
         registry.0.insert(self.uid, self);
         vec![(self.uid, self.world_position.extend(0.))]
+    }
+}
+
+pub struct Stack<L>(pub L);
+
+impl<L: LevelSet> LevelSet for Stack<L> {
+    fn into_loader(self, registry: &mut LevelMetaRegistry) -> Vec<(LevelUid, Vec3)> {
+        let levels = self.0.into_loader(registry);
+        let mut position = levels.first().map(|(_, p)| *p).unwrap_or_default();
+        levels
+            .into_iter()
+            .map(|(uid, _)| {
+                position.y -= registry.meta(uid).expect("level not registered").size.y;
+                (uid, position)
+            })
+            .collect()
     }
 }
 
