@@ -122,7 +122,7 @@ pub(crate) fn process_dyn_entities(
 
         for ldtk_entity in entities.0.iter() {
             let new_entity = if let Some(component) = registry.entities.get(&ldtk_entity.uid) {
-                if let Some(fields) = fields.0.get(&ldtk_entity.uid) {
+                if let Some(fields) = fields.0.get(&ldtk_entity.instance) {
                     if ldtk_entity.worldly && !worldly.0.insert(ldtk_entity.uid) {
                         continue;
                     } else {

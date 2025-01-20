@@ -31,10 +31,14 @@ pub struct EntityUid(pub i64);
 #[derive(Debug, Clone, Component, serde::Serialize, serde::Deserialize)]
 pub struct LdtkEntityInstance {
     pub uid: EntityUid,
+    pub instance: InstanceUid,
     pub xyz: Vec3,
     pub sprite: Option<LdtkEntitySprite>,
     pub worldly: bool,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct InstanceUid(String);
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LdtkEntitySprite {
@@ -72,7 +76,6 @@ pub struct EntityInstanceUid(pub String);
 
 pub struct DynCompLdtkEntityInstance {
     instance: LdtkEntityInstance,
-    entity: proc_macro2::TokenStream,
 }
 
 pub struct ExtractEntityInstances;
@@ -86,8 +89,6 @@ impl IntoExtractedComponent<ExtractedEntityInstances> for ExtractEntityInstances
         tileset_registry: Self::Context,
     ) -> ExtractedEntityInstances {
         let mut instances = HashMap::<LevelUid, Vec<DynCompLdtkEntityInstance>>::default();
-        let types = world.extract_component(ExtractEntityTypes);
-        let enums = EnumRegistry::from_world(world);
 
         for (level, _, entities, z) in world.entities() {
             for entity in entities {
@@ -97,6 +98,7 @@ impl IntoExtractedComponent<ExtractedEntityInstances> for ExtractEntityInstances
                         worldly: entity.tags.iter().any(|t| t.to_lowercase() == "worldly"),
                         uid: EntityUid(entity.def_uid),
                         xyz: Vec3::new(entity.px[0] as f32, -entity.px[1] as f32, z),
+                        instance: InstanceUid(entity.iid.clone()),
                         sprite: entity.tile.as_ref().map(|t| {
                             let tileset = tileset_registry.tileset(TileSetUid(t.tileset_uid));
                             LdtkEntitySprite {
@@ -123,31 +125,6 @@ impl IntoExtractedComponent<ExtractedEntityInstances> for ExtractEntityInstances
                                     ))),
                             }
                         }),
-                    },
-                    entity: {
-                        let ty = types.uids.get(&EntityUid(entity.def_uid)).unwrap();
-                        match ty {
-                            EntityType::Marker(name) => {
-                                quote! { #name }
-                            }
-                            EntityType::Struct { name, fields } => {
-                                let fields = fields.iter().map(|field| {
-                                    let field = entity
-                                        .field_instances
-                                        .iter()
-                                        .find(|i| i.identifier == *field.0)
-                                        .expect("invalid entity field");
-                                    parse_entity_field_value(field, &enums)
-                                        .expect("cannot parse field value")
-                                });
-
-                                quote! {
-                                    #name {
-                                        #(#fields),*
-                                    }
-                                }
-                            }
-                        }
                     },
                 });
             }
@@ -201,6 +178,7 @@ impl IntoExtractedComponent<ExtractedCompEntities> for ExtractCompEntities {
                         worldly: entity.tags.iter().any(|t| t.to_lowercase() == "worldly"),
                         uid: EntityUid(entity.def_uid),
                         xyz: Vec3::new(entity.px[0] as f32, -entity.px[1] as f32, z),
+                        instance: InstanceUid(entity.iid.clone()),
                         sprite: entity.tile.as_ref().map(|t| {
                             let tileset = tileset_registry.tileset(TileSetUid(t.tileset_uid));
                             LdtkEntitySprite {
@@ -500,7 +478,12 @@ impl ExtractedComponent for ExtractedEntityTypes {
                     .iter()
                     .map(|(name, _)| {
                         let name_ident = format_ident!("{}", name.to_case(Case::Snake));
-                        quote! { slf.#name_ident = ::bevy_ldtk_scene::extract::entities::FromField::from_field(fields.iter().find(|field| field.identifier == #name).expect("invalid field")); }
+                        quote! {
+                            slf.#name_ident =
+                                ::bevy_ldtk_scene::extract::entities::FromField::from_field(
+                                    fields.iter().find(|field| field.identifier == #name).expect("invalid field")
+                                );
+                        }
                     })
                     .collect(),
             };
@@ -520,7 +503,11 @@ impl ExtractedComponent for ExtractedEntityTypes {
                 #[allow(unused)]
                 pub use #entity_mod :: #name;
                 impl ::bevy_ldtk_scene::extract::entities::DynLdtkEntity for #entity_mod :: #name {
-                    fn insert(&self, fields: &[::bevy_ldtk_scene::ldtk2::FieldInstance], entity: &mut ::bevy::prelude::EntityCommands) {
+                    fn insert(
+                        &self,
+                        fields: &[::bevy_ldtk_scene::ldtk2::FieldInstance],
+                        entity: &mut ::bevy::prelude::EntityCommands,
+                    ) {
                         let mut slf = self.clone();
                         #(#insert_fields)*
                         entity.insert(slf);
@@ -571,15 +558,19 @@ impl IntoExtractedComponent<ExtractedEntityFields> for ExtractEntityFields {
             world
                 .entities()
                 .flat_map(|(_, _, entities, _)| {
-                    entities
-                        .map(|entity| (EntityUid(entity.def_uid), entity.field_instances.clone()))
+                    entities.map(|entity| {
+                        (
+                            InstanceUid(entity.iid.clone()),
+                            entity.field_instances.clone(),
+                        )
+                    })
                 })
                 .collect(),
         )
     }
 }
 
-pub struct ExtractedEntityFields(pub HashMap<EntityUid, Vec<FieldInstance>>);
+pub struct ExtractedEntityFields(pub HashMap<InstanceUid, Vec<FieldInstance>>);
 
 impl ExtractedComponent for ExtractedEntityFields {}
 
