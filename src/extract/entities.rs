@@ -7,7 +7,7 @@ use extract::{
     world::{ExtractedComponent, FromLdtkWorld, IntoExtractedComponent},
 };
 use ldtk2::{serde_json::Value, FieldInstance};
-use quote::{format_ident, quote, TokenStreamExt};
+use quote::{format_ident, quote, ToTokens, TokenStreamExt};
 use world::{ExtractLdtkWorld, LevelUid};
 
 pub trait DynLdtkEntity: 'static + Send + Sync + Debug {
@@ -445,7 +445,7 @@ impl IntoExtractedComponent<ExtractedEntityTypes> for ExtractEntityTypes {
 
         for entity in world.ldtk().defs.entities.iter() {
             let name = format_ident!("{}", entity.identifier.to_case(Case::Pascal));
-            let fields: HashMap<String, syn::Ident> = entity
+            let fields: HashMap<String, proc_macro2::TokenStream> = entity
                 .field_defs
                 .iter()
                 .map(|f| (f.identifier.clone(), parse_entity_field_type(f, &context)))
@@ -548,7 +548,7 @@ pub enum EntityType {
     Marker(syn::Ident),
     Struct {
         name: syn::Ident,
-        fields: HashMap<String, syn::Ident>,
+        fields: HashMap<String, proc_macro2::TokenStream>,
     },
 }
 
@@ -586,7 +586,7 @@ impl ExtractedComponent for ExtractedEntityFields {}
 fn parse_entity_field_type(
     field: &ldtk2::FieldDefinition,
     enum_registry: &EnumRegistry,
-) -> syn::Ident {
+) -> proc_macro2::TokenStream {
     if field.field_definition_type.contains("LocalEnum") {
         match enum_registry.definition(
             field
@@ -594,14 +594,15 @@ fn parse_entity_field_type(
                 .strip_prefix("LocalEnum.")
                 .unwrap(),
         ) {
-            EnumDefinition::Enum { ty, .. } => return ty.clone(),
+            EnumDefinition::Enum { ty, .. } => return ty.to_token_stream(),
             EnumDefinition::Marker(_) => panic!("an entity cannot have a marker enum"),
         }
     }
 
     match &*field.field_definition_type {
-        "Float" => {
-            format_ident!("f32")
+        "Float" => format_ident!("f32").to_token_stream(),
+        "Point" => {
+            quote! { ::bevy::prelude::Vec2 }
         }
         _ => todo!("implement more data types"),
     }
@@ -642,15 +643,19 @@ fn parse_entity_field_value(
 
     match &*field.field_instance_type {
         "Float" => {
-            let Some(Value::Number(number)) = field.value.as_ref() else {
-                panic!("Number didn't match expected shape");
-            };
-            let inner = number
-                .as_f64()
-                .expect("Numbers should be representable as floats") as f32;
+            let inner = f32::from_field(field);
 
             Some(quote! {
                 #name: #inner
+            })
+        }
+        "Point" => {
+            let xy = Vec2::from_field(field);
+            let x = xy.x;
+            let y = -xy.y;
+
+            Some(quote! {
+                #name: ::bevy::prelude::Vec2::new(#x, #y)
             })
         }
         _ => todo!("implement more data types"),
@@ -663,6 +668,32 @@ pub trait FromField {
 
 impl FromField for f32 {
     fn from_field(field: &ldtk2::FieldInstance) -> Self {
-        field.value.as_ref().expect("f32").as_f64().expect("f32") as f32
+        let Some(Value::Number(number)) = field.value.as_ref() else {
+            panic!("Number didn't match expected shape");
+        };
+        number
+            .as_f64()
+            .expect("Numbers should be representable as floats") as f32
+    }
+}
+
+impl FromField for Vec2 {
+    fn from_field(field: &ldtk2::FieldInstance) -> Self {
+        let Some(Value::Object(xy)) = field.value.as_ref() else {
+            panic!("Point didn't match expected shape: {:#?}", field.value);
+        };
+
+        let x = xy
+            .get("cx")
+            .expect("x")
+            .as_f64()
+            .expect("Point should contain floats") as f32;
+        let y = xy
+            .get("cy")
+            .expect("y")
+            .as_f64()
+            .expect("Point should contain floats") as f32;
+
+        Vec2::new(x, y)
     }
 }
