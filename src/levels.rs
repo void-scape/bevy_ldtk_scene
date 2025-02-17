@@ -211,22 +211,22 @@ pub trait LevelSet {
 
 impl<T: LevelMetaExt> LevelSet for T {
     fn into_loader(self, registry: &mut LevelMetaRegistry) -> Vec<(LevelUid, Vec3)> {
-        registry.0.insert(T::uid(), T::meta());
-        vec![(T::uid(), T::world_position().extend(0.))]
+        registry.0.insert(self.uid(), self.meta());
+        vec![(self.uid(), self.world_position().extend(0.))]
     }
 }
 
 impl<T: LevelMetaExt> LevelSet for (T, Vec2) {
     fn into_loader(self, registry: &mut LevelMetaRegistry) -> Vec<(LevelUid, Vec3)> {
-        registry.0.insert(T::uid(), T::meta());
-        vec![(T::uid(), self.1.extend(0.))]
+        registry.0.insert(self.0.uid(), self.0.meta());
+        vec![(self.0.uid(), self.1.extend(0.))]
     }
 }
 
 impl<T: LevelMetaExt> LevelSet for (T, Vec3) {
     fn into_loader(self, registry: &mut LevelMetaRegistry) -> Vec<(LevelUid, Vec3)> {
-        registry.0.insert(T::uid(), T::meta());
-        vec![(T::uid(), self.1)]
+        registry.0.insert(self.0.uid(), self.0.meta());
+        vec![(self.0.uid(), self.1)]
     }
 }
 

@@ -18,9 +18,14 @@ pub mod process;
 pub mod world;
 
 pub mod prelude {
-    pub use crate::extract::levels::LevelMetaExt;
+    pub use crate::extract::composites::*;
+    pub use crate::extract::entities::*;
+    pub use crate::extract::enums::*;
+    pub use crate::extract::levels::*;
+    pub use crate::extract::tiles::*;
     pub use crate::levels::LevelLoader;
-    pub use crate::world::{LayerUid, LevelUid};
+    pub use crate::levels::*;
+    pub use crate::world::*;
     pub use crate::{HotWorld, World};
 }
 

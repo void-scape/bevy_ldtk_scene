@@ -1,7 +1,7 @@
 use super::entities::{parse_field_type, parse_field_value};
 use super::enums::EnumRegistry;
 use super::world::{ExtractedComponent, FromLdtkWorld, IntoExtractedComponent};
-use crate::world::LevelUid;
+use crate::world::{ExtractLdtkWorld, LevelUid};
 use bevy::prelude::*;
 use bevy::utils::HashMap;
 use convert_case::{Case, Casing};
@@ -15,11 +15,11 @@ pub struct LevelMeta {
 }
 
 impl LevelMeta {
-    pub fn new<M: LevelMetaExt>() -> Self {
+    pub fn new<L: LevelMetaExt>(level: &L) -> Self {
         Self {
-            uid: M::uid(),
-            size: M::size(),
-            world_position: M::world_position(),
+            uid: level.uid(),
+            size: level.size(),
+            world_position: level.world_position(),
         }
     }
 
@@ -41,29 +41,42 @@ impl LevelMeta {
 }
 
 pub trait LevelMetaExt {
-    fn uid() -> LevelUid;
+    fn uid(&self) -> LevelUid;
 
     /// Pixel dimensions of the level in the LDtk world.
-    fn size() -> Vec2;
+    fn size(&self) -> Vec2;
 
     /// Pixel position in the LDtk world.
-    fn world_position() -> Vec2;
+    fn world_position(&self) -> Vec2;
 
-    fn meta() -> LevelMeta
+    fn meta(&self) -> LevelMeta
     where
         Self: Sized,
     {
-        LevelMeta::new::<Self>()
+        LevelMeta::new(self)
     }
 
     /// The [`Rect`] which this level occupies in the bevy world given `transform`.
-    fn rect(transform: &GlobalTransform) -> Rect {
+    fn rect(&self, transform: &GlobalTransform) -> Rect {
         let position = transform.translation().xy();
         if transform.scale() != Vec3::ONE {
             todo!("world rect scaled");
         }
 
-        Rect::from_corners(position, position + Self::size())
+        Rect::from_corners(position, position + self.size())
+    }
+}
+
+pub struct LevelNames(pub Vec<syn::Ident>);
+
+impl FromLdtkWorld for LevelNames {
+    fn from_world(world: &ExtractLdtkWorld) -> Self {
+        Self(
+            world
+                .levels()
+                .map(|l| format_ident!("{}", l.identifier.to_case(Case::Pascal)))
+                .collect(),
+        )
     }
 }
 
@@ -144,8 +157,12 @@ impl ExtractedComponent for ExtractedLevelUids {
             }
 
             pub trait QueryLevelFields {
-                fn fields() -> LevelFields;
+                fn fields(&self) -> LevelFields;
             }
+
+            pub trait LevelExt: ::bevy_ldtk_scene::prelude::LevelMetaExt + QueryLevelFields + ::bevy_ldtk_scene::levels::LevelSet + Send + Sync + 'static {}
+
+            impl<T> LevelExt for T where T: ::bevy_ldtk_scene::prelude::LevelMetaExt + QueryLevelFields + ::bevy_ldtk_scene::levels::LevelSet + Send + Sync + 'static {}
         });
 
         for (uid, level) in self.0.iter() {
@@ -160,21 +177,22 @@ impl ExtractedComponent for ExtractedLevelUids {
 
             let fields = self.2.get(&level.identifier).unwrap();
             output.append_all(quote! {
+                #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
                 pub struct #name;
                 impl ::bevy_ldtk_scene::extract::levels::LevelMetaExt for #name {
-                    fn uid() -> ::bevy_ldtk_scene::world::LevelUid {
+                    fn uid(&self) -> ::bevy_ldtk_scene::world::LevelUid {
                         ::bevy_ldtk_scene::world::LevelUid(#uid)
                     }
-                    fn size() -> ::bevy::prelude::Vec2 {
+                    fn size(&self) -> ::bevy::prelude::Vec2 {
                         ::bevy::prelude::Vec2::new(#size_x, #size_y)
                     }
-                    fn world_position() -> ::bevy::prelude::Vec2 {
+                    fn world_position(&self) -> ::bevy::prelude::Vec2 {
                         ::bevy::prelude::Vec2::new(#world_x, #world_y)
                     }
                 }
 
                 impl QueryLevelFields for #name {
-                    fn fields() -> LevelFields {
+                    fn fields(&self) -> LevelFields {
                         LevelFields {
                             #(#fields,)*
                         }
