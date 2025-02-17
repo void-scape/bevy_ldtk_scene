@@ -219,7 +219,21 @@ impl IntoExtractedComponent<ExtractedCompEntities> for ExtractCompEntities {
                                         .iter()
                                         .find(|i| i.identifier == *field.0)
                                         .expect("invalid entity field");
-                                    parse_entity_field_value(field, &enums)
+                                    let can_be_null = world
+                                        .ldtk()
+                                        .defs
+                                        .entities
+                                        .iter()
+                                        .find(|d| d.uid == entity.def_uid)
+                                        .map(|d| {
+                                            d.field_defs
+                                                .iter()
+                                                .find(|i| i.identifier == field.identifier)
+                                                .expect("invalid entity field")
+                                                .can_be_null
+                                        })
+                                        .expect("invalid entity def");
+                                    parse_field_value(can_be_null, field, &enums)
                                         .expect("cannot parse field value")
                                 });
 
@@ -426,7 +440,7 @@ impl IntoExtractedComponent<ExtractedEntityTypes> for ExtractEntityTypes {
             let fields: HashMap<String, proc_macro2::TokenStream> = entity
                 .field_defs
                 .iter()
-                .map(|f| (f.identifier.clone(), parse_entity_field_type(f, &context)))
+                .map(|f| (f.identifier.clone(), parse_field_type(f, &context)))
                 .collect();
 
             if fields.is_empty() {
@@ -574,7 +588,8 @@ pub struct ExtractedEntityFields(pub HashMap<InstanceUid, Vec<FieldInstance>>);
 
 impl ExtractedComponent for ExtractedEntityFields {}
 
-fn parse_entity_field_type(
+// TODO: move these out of entity
+pub fn parse_field_type(
     field: &ldtk2::FieldDefinition,
     enum_registry: &EnumRegistry,
 ) -> proc_macro2::TokenStream {
@@ -585,25 +600,54 @@ fn parse_entity_field_type(
                 .strip_prefix("LocalEnum.")
                 .unwrap(),
         ) {
-            EnumDefinition::Enum { ty, .. } => return ty.to_token_stream(),
+            EnumDefinition::Enum { ty, .. } => {
+                if field.can_be_null {
+                    return quote! {
+                        Option<#ty>
+                    };
+                } else {
+                    return ty.to_token_stream();
+                }
+            }
             EnumDefinition::Marker(_) => panic!("an entity cannot have a marker enum"),
         }
     }
 
     match &*field.field_definition_type {
-        "Float" => format_ident!("f32").to_token_stream(),
+        "Float" => {
+            if field.can_be_null {
+                quote! {
+                    Option<f32>
+                }
+            } else {
+                quote! { f32 }
+            }
+        }
         "Point" => {
-            quote! { ::bevy::prelude::Vec2 }
+            if field.can_be_null {
+                quote! { Option<::bevy::prelude::Vec2> }
+            } else {
+                quote! { ::bevy::prelude::Vec2 }
+            }
         }
         _ => todo!("implement more data types"),
     }
 }
 
-fn parse_entity_field_value(
+pub fn parse_field_value(
+    can_be_null: bool,
     field: &ldtk2::FieldInstance,
     enum_registry: &EnumRegistry,
 ) -> Option<proc_macro2::TokenStream> {
     let name = format_ident!("{}", field.identifier.to_case(Case::Snake));
+
+    if field.value.as_ref().is_none() {
+        if can_be_null {
+            return Some(quote! { #name: None });
+        } else {
+            panic!("non nullable field missing value");
+        }
+    }
 
     if field.field_instance_type.contains("LocalEnum") {
         match enum_registry.definition(
@@ -613,10 +657,7 @@ fn parse_entity_field_value(
                 .unwrap(),
         ) {
             EnumDefinition::Enum { ty, .. } => {
-                let value = field
-                    .value
-                    .as_ref()
-                    .expect("expected field instance to have a value");
+                let value = field.value.as_ref().unwrap();
                 let variant = match value {
                     Value::String(str) => {
                         format_ident!("{}", str.to_case(Case::Pascal))
@@ -626,9 +667,13 @@ fn parse_entity_field_value(
                     }
                 };
 
-                return Some(quote! { #name: #ty :: #variant });
+                if can_be_null {
+                    return Some(quote! { #name: Some(#ty :: #variant) });
+                } else {
+                    return Some(quote! { #name: #ty :: #variant });
+                }
             }
-            EnumDefinition::Marker(_) => panic!("an entity cannot have a marker enum"),
+            EnumDefinition::Marker(_) => panic!("an struct cannot have a marker enum"),
         }
     }
 
@@ -636,18 +681,30 @@ fn parse_entity_field_value(
         "Float" => {
             let inner = f32::from_field(field);
 
-            Some(quote! {
-                #name: #inner
-            })
+            if can_be_null {
+                Some(quote! {
+                    #name: Some(#inner)
+                })
+            } else {
+                Some(quote! {
+                    #name: #inner
+                })
+            }
         }
         "Point" => {
             let xy = Vec2::from_field(field);
             let x = xy.x;
             let y = -xy.y;
 
-            Some(quote! {
-                #name: ::bevy::prelude::Vec2::new(#x, #y)
-            })
+            if can_be_null {
+                Some(quote! {
+                    #name: Some(::bevy::prelude::Vec2::new(#x, #y))
+                })
+            } else {
+                Some(quote! {
+                    #name: ::bevy::prelude::Vec2::new(#x, #y)
+                })
+            }
         }
         _ => todo!("implement more data types"),
     }
