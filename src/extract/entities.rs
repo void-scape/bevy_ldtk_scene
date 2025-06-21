@@ -629,7 +629,14 @@ pub fn parse_field_type(
                 quote! { ::bevy::prelude::Vec2 }
             }
         }
-        _ => todo!("implement more data types"),
+        "MultiLines" | "String" => {
+            if field.can_be_null {
+                quote! { Option<::std::string::String> }
+            } else {
+                quote! { ::std::string::String }
+            }
+        }
+        t => todo!("implement more data types, including \"{t}\""),
     }
 }
 
@@ -705,7 +712,19 @@ pub fn parse_field_value(
                 })
             }
         }
-        _ => todo!("implement more data types"),
+        "String" | "MultiLines" => {
+            let string = String::from_field(field);
+            if can_be_null {
+                Some(quote! {
+                    #name: Some(::std::string::String::from(#string))
+                })
+            } else {
+                Some(quote! {
+                    #name: ::std::string::String::from(#string)
+                })
+            }
+        }
+        t => todo!("implement more data types, including \"{t}\""),
     }
 }
 
@@ -742,5 +761,15 @@ impl FromField for Vec2 {
             .expect("Point should contain floats") as f32;
 
         Vec2::new(x, y)
+    }
+}
+
+impl FromField for String {
+    fn from_field(field: &ldtk2::FieldInstance) -> Self {
+        let Some(Value::String(s)) = field.value.as_ref() else {
+            panic!("String didn't match expected shape: {:#?}", field.value);
+        };
+
+        s.clone()
     }
 }
