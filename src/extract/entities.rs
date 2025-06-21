@@ -396,7 +396,6 @@ impl ExtractedComponent for ExtractedCompEntities {
                         return;
                     };
 
-                    use ::bevy::prelude::BuildChildren;
                     #layout_output
                     #(#entities)*
                 }

@@ -7,6 +7,10 @@ use process::{entities::WorldlyEntities, ProcessSet};
 use std::{fmt::Debug, path::PathBuf};
 use world::{ExtractLdtkWorld, LdtkWorld};
 
+use prelude::TileSetComponentRegistry;
+
+use self::process::entities::{LevelDynEntityRegistry, LevelEntityRegistry};
+
 pub extern crate ldtk2;
 pub extern crate serde;
 pub extern crate typetag;
@@ -41,6 +45,9 @@ impl Plugin for LdtkScenePlugin {
             .init_asset_loader::<asset_loader::HotAssetLoader>()
             .init_asset_loader::<asset_loader::TileSetAssetLoader>()
             .init_asset_loader::<asset_loader::EntityAssetLoader>()
+            .init_resource::<TileSetComponentRegistry>()
+            .init_resource::<LevelEntityRegistry>()
+            .init_resource::<LevelDynEntityRegistry>()
             .insert_resource(LevelMetaRegistry::default())
             .add_systems(
                 PreUpdate,
