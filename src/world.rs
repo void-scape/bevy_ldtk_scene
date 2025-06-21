@@ -14,7 +14,7 @@ use crate::{
     },
     process::composites::CompositeProcessor,
 };
-use bevy::{prelude::*, utils::hashbrown::HashMap};
+use bevy::{platform::collections::HashMap, prelude::*};
 use image::{ImageBuffer, ImageFormat, Rgba};
 use ldtk2::Ldtk;
 use quote::TokenStreamExt;

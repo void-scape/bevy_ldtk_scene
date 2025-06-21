@@ -9,12 +9,10 @@ use crate::{
     },
     HotWorld,
 };
-use bevy::utils::hashbrown::hash_map::Values;
-use bevy::{
-    ecs::{component::ComponentId, world::DeferredWorld},
-    prelude::*,
-    utils::HashMap,
-};
+use bevy::ecs::component::HookContext;
+use bevy::platform::collections::hash_map::Values;
+use bevy::platform::collections::HashMap;
+use bevy::{ecs::world::DeferredWorld, prelude::*};
 use std::fmt::Debug;
 
 /// Queued levels for a [`World`] to spawn.
@@ -130,10 +128,10 @@ impl Level {
     }
 }
 
-fn remove_level(mut world: DeferredWorld, entity: Entity, _: ComponentId) {
-    let uid = world.get::<Level>(entity).unwrap().uid();
-    if let Some(parent) = world.get::<Parent>(entity) {
-        if let Some(mut level_cache) = world.get_mut::<LoadedLevels>(parent.get()) {
+fn remove_level(mut world: DeferredWorld, ctx: HookContext) {
+    let uid = world.get::<Level>(ctx.entity).unwrap().uid();
+    if let Some(parent) = world.get::<ChildOf>(ctx.entity) {
+        if let Some(mut level_cache) = world.get_mut::<LoadedLevels>(parent.parent()) {
             level_cache.remove(uid);
         }
     }
@@ -198,7 +196,7 @@ pub fn despawn_levels(
         for uid in loader.despawn.drain(..) {
             if let Some(entities) = loaded.0.get(&uid) {
                 for entity in entities.iter() {
-                    commands.entity(*entity).despawn_recursive();
+                    commands.entity(*entity).despawn();
                 }
             }
         }
@@ -271,4 +269,4 @@ macro_rules! impl_level_set {
     };
 }
 
-bevy::utils::all_tuples!(impl_level_set, 2, 15, P);
+variadics_please::all_tuples!(impl_level_set, 2, 15, P);

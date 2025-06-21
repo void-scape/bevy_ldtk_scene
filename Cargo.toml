@@ -4,7 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bevy = { version = "0.15", features = ["serialize"] }
+bevy = { version = "0.16", default-features = false, features = [
+    "std",
+    "bevy_asset",
+    "bevy_sprite",
+    "bevy_log",
+    "bevy_log",
+    "serialize",
+] }
 foldhash = "0.1.3"
 ldtk2 = "0.8.0"
 serde = { version = "1", features = ["derive"] }
@@ -18,10 +25,10 @@ walkdir = "2.5"
 quote = { version = "1.0", default-features = false }
 prettyplease = { version = "0.2", default-features = false }
 proc-macro2 = { version = "1.0", default-features = false }
-thiserror = "2.0.10"
-libloading = "0.8.6"
-typetag = "0.2.19"
-rand = "0.8.5"
+thiserror = "2.0"
+typetag = "0.2"
+rand = "0.8"
+variadics_please = "1.1.0"
 
 [dependencies.image]
 version = "0.25.5"

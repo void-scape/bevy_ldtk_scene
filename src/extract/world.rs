@@ -62,7 +62,7 @@ macro_rules! impl_from_world {
     };
 }
 
-bevy::utils::all_tuples!(impl_from_world, 2, 15, A);
+variadics_please::all_tuples!(impl_from_world, 2, 15, A);
 
 #[allow(unused)]
 pub trait ExtractedComponent {
@@ -109,7 +109,7 @@ macro_rules! impl_extracted_component {
     };
 }
 
-bevy::utils::all_tuples!(impl_extracted_component, 2, 15, A);
+variadics_please::all_tuples!(impl_extracted_component, 2, 15, A);
 
 pub trait IntoExtractedComponent<C> {
     type Context: FromLdtkWorld;
@@ -134,7 +134,7 @@ macro_rules! impl_into_extracted_component {
     };
 }
 
-bevy::utils::all_tuples!(impl_into_extracted_component, 2, 15, A, B);
+variadics_please::all_tuples!(impl_into_extracted_component, 2, 15, A, B);
 
 /// Name of the top level module.
 pub struct WorldName(pub String);

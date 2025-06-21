@@ -2,8 +2,8 @@ use super::entities::{parse_field_type, parse_field_value};
 use super::enums::EnumRegistry;
 use super::world::{ExtractedComponent, FromLdtkWorld, IntoExtractedComponent};
 use crate::world::{ExtractLdtkWorld, LevelUid};
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy::utils::HashMap;
 use convert_case::{Case, Casing};
 use quote::{format_ident, quote, TokenStreamExt};
 

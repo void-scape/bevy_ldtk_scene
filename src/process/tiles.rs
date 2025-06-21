@@ -1,7 +1,8 @@
 use crate::{
     asset_loader::LevelTileSetInstances, extract::tiles::TileSetComponentRegistry, world::LevelUid,
 };
-use bevy::{prelude::*, utils::hashbrown::HashMap};
+use bevy::platform::collections::HashMap;
+use bevy::prelude::*;
 
 /// Root entity of a set of [`TileSetEntity`]s.
 #[derive(Component)]
@@ -106,10 +107,7 @@ pub fn update_tilesets(
                 .iter()
                 .filter_map(|(entity, handle)| (handle.0.id() == *id).then_some(entity))
             {
-                commands
-                    .entity(entity)
-                    .despawn_descendants()
-                    .clear_children();
+                commands.entity(entity).despawn_related::<Children>();
             }
         }
     }

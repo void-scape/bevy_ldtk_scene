@@ -7,9 +7,9 @@ use crate::{
 };
 use bevy::{
     ecs::system::SystemId,
+    platform::collections::{HashMap, HashSet},
     prelude::*,
     sprite::Anchor,
-    utils::hashbrown::{HashMap, HashSet},
 };
 
 /// Root entity of a set of [`LevelEntity`]s.
@@ -55,15 +55,15 @@ pub struct Populated;
 
 pub fn spawn_entities(
     mut commands: Commands,
-    entity_query: Query<(Entity, &LevelEntities, &Parent), Without<Populated>>,
-    levels_query: Query<&Parent, With<Level>>,
+    entity_query: Query<(Entity, &LevelEntities, &ChildOf), Without<Populated>>,
+    levels_query: Query<&ChildOf, With<Level>>,
     registry: Res<LevelEntityRegistry>,
 ) {
     for (entity, level_entities, level_entity) in entity_query.iter() {
         if let Some(id) = registry.entities.get(&level_entities.0) {
-            if let Ok(world_entity) = levels_query.get(level_entity.get()) {
+            if let Ok(world_entity) = levels_query.get(level_entity.parent()) {
                 commands
-                    .run_system_with_input(*id, EntitySystemInput::new(entity, world_entity.get()));
+                    .run_system_with(*id, EntitySystemInput::new(entity, world_entity.parent()));
             }
         }
 
@@ -88,7 +88,7 @@ pub struct WorldlyEntities(pub HashSet<EntityUid>);
 pub(crate) fn process_dyn_entities(
     mut commands: Commands,
     server: Res<AssetServer>,
-    entity_query: Query<(Entity, &DynLevelEntities, &Parent), Without<Populated>>,
+    entity_query: Query<(Entity, &DynLevelEntities, &ChildOf), Without<Populated>>,
     entities: Res<Assets<EntityInstances>>,
     mut layouts: ResMut<Assets<TextureAtlasLayout>>,
     registry: Res<LevelDynEntityRegistry>,
@@ -116,7 +116,7 @@ pub(crate) fn process_dyn_entities(
             continue;
         };
 
-        let Ok(level) = levels.get(parent.get()) else {
+        let Ok(level) = levels.get(parent.parent()) else {
             continue;
         };
 
@@ -217,7 +217,7 @@ pub fn update_dyn_entities(
                 commands
                     .entity(entity)
                     .remove::<Populated>()
-                    .despawn_descendants();
+                    .despawn_related::<Children>();
             }
         }
     }

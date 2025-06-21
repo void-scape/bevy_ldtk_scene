@@ -1,5 +1,5 @@
 use crate::*;
-use bevy::utils::hashbrown::HashMap;
+use bevy::platform::collections::HashMap;
 use convert_case::{Case, Casing};
 use extract::{
     enums::{EnumDefinition, EnumRegistry},
@@ -378,7 +378,7 @@ impl ExtractedComponent for ExtractedCompEntities {
                     server: ::bevy::prelude::Res<::bevy::prelude::AssetServer>,
                     mut atlases: ::bevy::prelude::ResMut<::bevy::prelude::Assets<::bevy::prelude::TextureAtlasLayout>>,
                     mut worldly_query: ::bevy::prelude::Query<&mut ::bevy_ldtk_scene::process::entities::WorldlyEntities>,
-                    level_query: ::bevy::prelude::Query<&::bevy::prelude::Parent>,
+                    level_query: ::bevy::prelude::Query<&::bevy::prelude::ChildOf>,
                     transforms: ::bevy::prelude::Query<&::bevy::prelude::Transform>,
                 ) {
                     let Ok(mut worldly) = worldly_query.get_mut(input.world()) else {
@@ -387,7 +387,7 @@ impl ExtractedComponent for ExtractedCompEntities {
                     };
 
                     let Ok(level) = level_query.get(input.level()) else {
-                        ::bevy::prelude::error!("failed to spawn entities: could not retrieve level entities [Parent]");
+                        ::bevy::prelude::error!("failed to spawn entities: could not retrieve level entities [ChildOf]");
                         return;
                     };
 

@@ -1,5 +1,5 @@
 use crate::*;
-use bevy::utils::hashbrown::HashMap;
+use bevy::platform::collections::HashMap;
 use extract::{
     enums::{EnumRegistry, EnumUid},
     world::{ExtractedComponent, FromLdtkWorld, IntoExtractedComponent, WorldDirPath},
@@ -178,7 +178,6 @@ impl IntoExtractedComponent<ExtractedTileSets> for ExtractTileSets {
                 .entry(level.uid)
                 .or_insert_with(|| LevelTileSets {
                     level_uid: LevelUid(level.uid),
-                    level_ident: level.identifier.clone(),
                     instances: Vec::new(),
                 });
 
@@ -222,7 +221,6 @@ impl IntoExtractedComponent<ExtractedTileSets> for ExtractTileSets {
 
 pub struct LevelTileSets {
     level_uid: LevelUid,
-    level_ident: String,
     instances: Vec<TileSetInstance>,
 }
 
@@ -263,24 +261,6 @@ impl ExtractedComponent for ExtractedTileSets {
         }
     }
 }
-
-// fn save_tile_set_instances(instances: Vec<TileSetInstance>) -> String {
-//     let mut app = App::default();
-//     app.register_type::<TileSetInstance>();
-//     let world = app.world_mut();
-//
-//     for instance in instances.into_iter().filter(|i| !i.tiles.is_empty()) {
-//         world.spawn(instance);
-//     }
-//
-//     let scene = DynamicSceneBuilder::from_world(world)
-//         .deny_resource::<Time<Real>>()
-//         .extract_entities(world.iter_entities().map(|entity| entity.id()))
-//         .build();
-//     let type_registry = world.resource::<AppTypeRegistry>();
-//     let type_registry = type_registry.read();
-//     scene.serialize(&type_registry).unwrap()
-// }
 
 pub trait TileComponent: 'static + Send + Sync {
     fn insert(&self, entity: &mut EntityCommands<'_>);
