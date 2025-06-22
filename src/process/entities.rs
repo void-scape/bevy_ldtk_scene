@@ -176,9 +176,15 @@ pub(crate) fn process_dyn_entities(
             };
 
             if let Some(entity_sprite) = &ldtk_entity.sprite {
+                let anchor = match entity_sprite.pivot.to_array() {
+                    [0.0, 0.0] => Anchor::TopLeft,
+                    [0.5, 0.5] => Anchor::Center,
+                    _ => panic!("unrecognized pivot: {:?}", entity_sprite.pivot),
+                };
+
                 let mut sprite = Sprite {
                     image: server.load(&entity_sprite.image),
-                    anchor: Anchor::TopLeft,
+                    anchor,
                     ..Default::default()
                 };
 

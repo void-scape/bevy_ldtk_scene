@@ -45,6 +45,7 @@ pub struct LdtkEntitySprite {
     pub image: String,
     pub tileset: TileSetUid,
     pub atlas: Atlas,
+    pub pivot: Vec2,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -102,6 +103,7 @@ impl IntoExtractedComponent<ExtractedEntityInstances> for ExtractEntityInstances
                         sprite: entity.tile.as_ref().map(|t| {
                             let tileset = tileset_registry.tileset(TileSetUid(t.tileset_uid));
                             LdtkEntitySprite {
+                                pivot: Vec2::new(entity.pivot[0] as f32, entity.pivot[1] as f32),
                                 tileset: TileSetUid(t.tileset_uid),
                                 image: tileset.asset_image.clone(),
                                 atlas: entity
@@ -182,6 +184,7 @@ impl IntoExtractedComponent<ExtractedCompEntities> for ExtractCompEntities {
                         sprite: entity.tile.as_ref().map(|t| {
                             let tileset = tileset_registry.tileset(TileSetUid(t.tileset_uid));
                             LdtkEntitySprite {
+                                pivot: Vec2::new(entity.pivot[0] as f32, entity.pivot[1] as f32),
                                 tileset: TileSetUid(t.tileset_uid),
                                 image: tileset.asset_image.clone(),
                                 atlas: entity
@@ -328,12 +331,18 @@ impl ExtractedComponent for ExtractedCompEntities {
                             quote! {None}
                         };
 
+                        let anchor = match s.pivot.to_array() {
+                            [0.0, 0.0] => quote! { ::bevy::sprite::Anchor::TopLeft },
+                            [0.5, 0.5] => quote! { ::bevy::sprite::Anchor::Center },
+                            _ => panic!("unrecognized pivot: {:?}", s.pivot),
+                        };
+
                         quote! {
                             ::bevy::prelude::Sprite {
                                 image: server.load(#path),
                                 rect: #rect,
                                 texture_atlas: #atlas,
-                                anchor: ::bevy::sprite::Anchor::TopLeft,
+                                anchor: #anchor,
                                 ..Default::default()
                             },
                         }
