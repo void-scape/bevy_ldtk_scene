@@ -152,8 +152,7 @@ pub(crate) fn process_dyn_entities(
 
                             info!(
                                 "spawning level entity {:?} at {:?}",
-                                component,
-                                ldtk_entity.xyz + level.translation
+                                component, ldtk_entity.xyz
                             );
 
                             id
