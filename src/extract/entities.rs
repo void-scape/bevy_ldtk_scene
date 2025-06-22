@@ -391,7 +391,7 @@ impl ExtractedComponent for ExtractedCompEntities {
                         return;
                     };
 
-                    let Ok(level_transform) = transforms.get(level.get()) else {
+                    let Ok(level_transform) = transforms.get(level.parent()) else {
                         ::bevy::prelude::error!("failed to spawn entities: could not retrieve level [Transform]");
                         return;
                     };
