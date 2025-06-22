@@ -22,7 +22,7 @@ impl LayerTiles for ldtk2::LayerInstance {
                 match &*self.layer_instance_type {
                     "IntGrid" | "AutoLayer" => self.auto_layer_tiles.iter(),
                     "Tiles" => self.grid_tiles.iter(),
-                    // Should be emtpy
+                    // Should be empty
                     _ => self.grid_tiles.iter(),
                 },
             )

@@ -96,11 +96,11 @@ pub fn extract_composites(
                         (0..tile_size as i32).collect()
                     };
 
-                    for (iy, dy) in y_range.iter().enumerate() {
+                    for (it, dy) in y_range.iter().enumerate() {
                         for (ix, dx) in x_range.iter().enumerate() {
                             if let Some(dst) = composite.get_pixel_mut_checked(
                                 px_x as u32 + ix as u32,
-                                px_y as u32 + iy as u32,
+                                px_y as u32 + it as u32,
                             ) {
                                 if let Some(src) = image
                                     .get_pixel_checked((src_x + *dx) as u32, (src_y + *dy) as u32)

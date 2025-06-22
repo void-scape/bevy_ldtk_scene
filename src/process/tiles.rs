@@ -54,7 +54,7 @@ pub fn process_tilesets(
                             .collect::<Vec<_>>()
                     });
 
-                    // TODO: autotile layers will place mutliple tiles on top of eachother,
+                    // TODO: autotile layers will place multiple tiles on top of eachother,
                     // which means we need some way to order the front from the back.
                     // This method does not really leave much room for z ordering...
                     let z_delta = 1. / (instance.tiles.len() as f32 * 2.);

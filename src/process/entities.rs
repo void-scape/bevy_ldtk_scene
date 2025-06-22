@@ -163,7 +163,7 @@ pub(crate) fn process_dyn_entities(
                         new_entity
                     }
                 } else {
-                    error!("Failed to retreive entity fields: {:?}", ldtk_entity.uid);
+                    error!("Failed to retrieve entity fields: {:?}", ldtk_entity.uid);
                     continue;
                 }
             } else {
