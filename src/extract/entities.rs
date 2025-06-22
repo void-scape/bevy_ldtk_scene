@@ -741,6 +741,19 @@ pub trait FromField {
     fn from_field(field: &ldtk2::FieldInstance) -> Self;
 }
 
+impl<T> FromField for Option<T>
+where
+    T: FromField,
+{
+    fn from_field(field: &ldtk2::FieldInstance) -> Self {
+        if field.value.is_some() {
+            Some(T::from_field(field))
+        } else {
+            None
+        }
+    }
+}
+
 impl FromField for f32 {
     fn from_field(field: &ldtk2::FieldInstance) -> Self {
         let Some(Value::Number(number)) = field.value.as_ref() else {
