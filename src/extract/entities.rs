@@ -28,6 +28,20 @@ pub trait DynLdtkEntity: 'static + Send + Sync + Debug {
 )]
 pub struct EntityUid(pub i64);
 
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Component,
+    serde::Deserialize,
+    serde::Serialize,
+)]
+pub struct EntityIid(pub &'static str);
+
 #[derive(Debug, Clone, Component, serde::Serialize, serde::Deserialize)]
 pub struct LdtkEntityInstance {
     pub uid: EntityUid,
@@ -351,11 +365,14 @@ impl ExtractedComponent for ExtractedCompEntities {
 
                 entities.push(if entity.worldly {
                     let uid = entity.uid.0;
+                    let iid = &entity.instance.0;
                     quote! {
                         if worldly.0.insert(::bevy_ldtk_scene::extract::entities::EntityUid(#uid)) {
                             commands.entity(input.world()).with_child(
                                 (
                                     ::bevy_ldtk_scene::process::entities::LevelEntity,
+                                    ::bevy_ldtk_scene::extract::entities::EntityUid(#uid),
+                                    ::bevy_ldtk_scene::extract::entities::EntityIid(#iid),
                                     ::bevy::prelude::Transform::from_translation(
                                         ::bevy::prelude::Vec3::new(#x, #y, #z) + level_transform.translation
                                     ),
@@ -366,10 +383,14 @@ impl ExtractedComponent for ExtractedCompEntities {
                         }
                     }
                 } else {
+                    let uid = entity.uid.0;
+                    let iid = &entity.instance.0;
                     quote! {
                         commands.entity(input.level()).with_child(
                             (
                                 ::bevy_ldtk_scene::process::entities::LevelEntity,
+                                ::bevy_ldtk_scene::extract::entities::EntityUid(#uid),
+                                ::bevy_ldtk_scene::extract::entities::EntityIid(#iid),
                                 ::bevy::prelude::Transform::from_xyz(#x, #y, #z),
                                 #sprite
                                 #entity_tokens
@@ -622,6 +643,15 @@ pub fn parse_field_type(
     }
 
     match &*field.field_definition_type {
+        "Int" => {
+            if field.can_be_null {
+                quote! {
+                    Option<i32>
+                }
+            } else {
+                quote! { i32 }
+            }
+        }
         "Float" => {
             if field.can_be_null {
                 quote! {
@@ -693,6 +723,19 @@ pub fn parse_field_value(
     }
 
     match &*field.field_instance_type {
+        "Int" => {
+            let inner = i32::from_field(field);
+
+            if can_be_null {
+                Some(quote! {
+                    #name: Some(#inner)
+                })
+            } else {
+                Some(quote! {
+                    #name: #inner
+                })
+            }
+        }
         "Float" => {
             let inner = f32::from_field(field);
 
@@ -751,6 +794,17 @@ where
         } else {
             None
         }
+    }
+}
+
+impl FromField for i32 {
+    fn from_field(field: &ldtk2::FieldInstance) -> Self {
+        let Some(Value::Number(number)) = field.value.as_ref() else {
+            panic!("Number didn't match expected shape");
+        };
+        number
+            .as_i64()
+            .expect("Numbers should be representable as integers") as i32
     }
 }
 
