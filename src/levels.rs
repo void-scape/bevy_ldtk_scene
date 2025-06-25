@@ -43,9 +43,15 @@ impl LevelLoader {
         }
     }
 
-    /// Despawn all levels of type [`LevelUid`].
-    pub fn despawn(&mut self, uid: LevelUid) -> &mut Self {
-        self.despawn.push(uid);
+    pub fn spawn(&mut self, meta: impl LevelMetaExt) -> &mut Self {
+        self.registry.0.insert(meta.uid(), meta.meta());
+        self.load
+            .push((meta.uid(), meta.meta().world_position.extend(0.)));
+        self
+    }
+
+    pub fn despawn(&mut self, meta: impl LevelMetaExt) -> &mut Self {
+        self.despawn.push(meta.uid());
         self
     }
 }
