@@ -137,7 +137,7 @@ pub(crate) fn process_dyn_entities(
                                 .id();
                             commands.entity(world_entity).add_child(id);
 
-                            info!(
+                            debug!(
                                 "spawning worldly entity {:?} at {:?}",
                                 component,
                                 ldtk_entity.xyz + level.translation
@@ -150,7 +150,7 @@ pub(crate) fn process_dyn_entities(
                                 .id();
                             commands.entity(entity).add_child(id);
 
-                            info!(
+                            debug!(
                                 "spawning level entity {:?} at {:?}",
                                 component, ldtk_entity.xyz
                             );
